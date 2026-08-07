@@ -8,6 +8,8 @@ Vite serves the frontend, proxying ``/api`` and ``/ws`` back here.
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -15,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from mupstudio import __version__
-from mupstudio.server.routers import system, viewport
+from mupstudio.server.routers import projects, runs, system, viewport
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "_static"
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -23,6 +25,19 @@ DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 def static_bundle_available() -> bool:
     return (STATIC_DIR / "index.html").exists()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Settle runs left in progress by a previous server, then serve.
+
+    A run recorded as running is not running: this process did not start it and
+    nothing is watching it.
+    """
+    from mupstudio.server.deps import reconcile_runs
+
+    reconcile_runs()
+    yield
 
 
 def create_app(*, dev: bool | None = None) -> FastAPI:
@@ -33,8 +48,11 @@ def create_app(*, dev: bool | None = None) -> FastAPI:
         title="MUP Studio",
         version=__version__,
         summary="Build, run and visualise reactive transport models",
+        lifespan=lifespan,
     )
     app.include_router(system.router, prefix="/api/v1")
+    app.include_router(projects.router, prefix="/api/v1")
+    app.include_router(runs.router, prefix="/api/v1")
     app.include_router(viewport.router, prefix="/api/v1")
 
     if dev:

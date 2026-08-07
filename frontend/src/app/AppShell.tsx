@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { ViewportHost } from "@/viewport-host/ViewportHost";
 import { fetchDatasetListing } from "@/net/viewportClient";
 import type { DatasetListing } from "@/results/DatasetPicker";
+import { ProjectStep, type ActiveProject } from "@/pages/ProjectStep";
+import { SimulateStep } from "@/pages/SimulateStep";
 import { StepPlaceholder } from "./StepPlaceholder";
 import { WorkflowRail } from "./WorkflowRail";
 import { IMPLEMENTED, type StepId, type StepStatus } from "./workflow";
@@ -25,6 +27,12 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
   const [inspector, setInspector] = useState<React.ReactNode>(null);
   const [listing, setListing] = useState<DatasetListing | null>(null);
   const [datasetId, setDatasetId] = useState("demo");
+  const [project, setProject] = useState<ActiveProject | null>(null);
+
+  const refreshDatasets = () =>
+    fetchDatasetListing()
+      .then(setListing)
+      .catch(() => setListing(null));
 
   // Prefer a real run over the synthetic demo when one is available: seeing
   // your own model beats seeing a fabricated one.
@@ -38,8 +46,9 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
       .catch(() => setListing(null));
   }, []);
 
-  // Only Results has data behind it today; the rest are honestly empty.
   const statuses: Partial<Record<StepId, StepStatus>> = {
+    project: project ? "complete" : "empty",
+    simulate: project ? "partial" : "locked",
     results: "complete",
   };
 
@@ -54,7 +63,12 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar step={active} datasetId={datasetId} listing={listing} />
+        <TopBar
+          step={active}
+          datasetId={datasetId}
+          listing={listing}
+          projectName={project?.detail.name ?? null}
+        />
 
         <div className="flex min-h-0 flex-1">
           <main className="min-w-0 flex-1">
@@ -67,6 +81,20 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
                 onInspector={setInspector}
                 listing={listing}
                 onSelectDataset={setDatasetId}
+              />
+            ) : active === "project" ? (
+              <ProjectStep active={project} onOpen={setProject} />
+            ) : active === "simulate" ? (
+              <SimulateStep
+                project={project}
+                onGoToProject={() => setActive("project")}
+                onFinished={(runId) => {
+                  // Show the run that just finished, so a completed model is
+                  // one click from the picture of it.
+                  void refreshDatasets();
+                  setDatasetId(runId);
+                  setActive("results");
+                }}
               />
             ) : (
               <StepPlaceholder step={active} onGoToResults={() => setActive("results")} />
@@ -92,10 +120,12 @@ function TopBar({
   step,
   datasetId,
   listing,
+  projectName,
 }: {
   step: StepId;
   datasetId: string;
   listing: DatasetListing | null;
+  projectName: string | null;
 }) {
   const run = listing?.runs.find((entry) => entry.id === datasetId);
   const showing = datasetId === "demo" ? "Synthetic demo" : (run?.label ?? datasetId);
@@ -104,6 +134,7 @@ function TopBar({
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-4">
       <div className="flex items-center gap-3">
         <span className="text-sm font-medium capitalize text-zinc-100">{step}</span>
+        {projectName && <span className="text-xs text-zinc-500">{projectName}</span>}
         {!IMPLEMENTED.has(step) && (
           <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">
             not built yet

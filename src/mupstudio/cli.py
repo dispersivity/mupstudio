@@ -169,19 +169,18 @@ def new_project(
 
     Writes a directory of TOML you can open in the app or edit by hand.
     """
-    from mupstudio.schema.common import StressPeriod, TimeDiscretisation
-    from mupstudio.schema.grid import column_grid
-    from mupstudio.schema.project import Project, ProjectMeta
+    from mupstudio.schema.templates import starter_column
     from mupstudio.store import projectstore
 
     if engine not in {"mf6rtm", "pht3d"}:
         typer.echo(f"unknown engine {engine!r}; choose mf6rtm or pht3d", err=True)
         raise typer.Exit(code=1)
 
-    project = Project(
-        meta=ProjectMeta(name=name, engine=engine),  # type: ignore[arg-type]
-        grid=column_grid(ncells=cells, length=length),
-        time=TimeDiscretisation(periods=[StressPeriod(perlen=1.0, nstp=10)]),
+    project = starter_column(
+        name,
+        engine=engine,  # type: ignore[arg-type]
+        cells=cells,
+        length=length,
     )
 
     try:

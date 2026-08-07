@@ -106,4 +106,4 @@ export const STEPS: Step[] = [
 export const STEP_BY_ID = new Map(STEPS.map((step) => [step.id, step]));
 
 /** Steps that have something behind them today. The rest say so plainly. */
-export const IMPLEMENTED: ReadonlySet<StepId> = new Set<StepId>(["results"]);
+export const IMPLEMENTED: ReadonlySet<StepId> = new Set<StepId>(["project", "simulate", "results"]);
