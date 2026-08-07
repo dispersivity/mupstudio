@@ -12,67 +12,11 @@ awkward case the renderer must handle.
 
 from __future__ import annotations
 
-import hashlib
-from dataclasses import dataclass
-
 import numpy as np
 
+from mupstudio.grids.mesh import DisvMesh
+
 SQRT3 = float(np.sqrt(3.0))
-
-
-@dataclass(frozen=True)
-class DisvMesh:
-    """A layered prismatic mesh, in the form the viewport uploads.
-
-    Attributes:
-        vertices: ``(nverts, 2)`` float32 xy of the 2D footprint.
-        cell_offsets: ``(ncpl + 1,)`` int32 CSR offsets into ``cell_indices``.
-        cell_indices: ``(total_cell_verts,)`` int32 vertex index per cell corner,
-            counter-clockwise.
-        cell_centers: ``(ncpl, 2)`` float32.
-        top: ``(nlay, ncpl)`` float32 elevation of each cell's top face.
-        botm: ``(nlay, ncpl)`` float32 elevation of each cell's bottom face.
-    """
-
-    vertices: np.ndarray
-    cell_offsets: np.ndarray
-    cell_indices: np.ndarray
-    cell_centers: np.ndarray
-    top: np.ndarray
-    botm: np.ndarray
-
-    @property
-    def ncpl(self) -> int:
-        """Cells per layer."""
-        return int(self.cell_centers.shape[0])
-
-    @property
-    def nlay(self) -> int:
-        return int(self.top.shape[0])
-
-    @property
-    def ncells(self) -> int:
-        return self.nlay * self.ncpl
-
-    @property
-    def bounds(self) -> tuple[float, float, float, float, float, float]:
-        """(xmin, ymin, zmin, xmax, ymax, zmax)."""
-        return (
-            float(self.vertices[:, 0].min()),
-            float(self.vertices[:, 1].min()),
-            float(self.botm.min()),
-            float(self.vertices[:, 0].max()),
-            float(self.vertices[:, 1].max()),
-            float(self.top.max()),
-        )
-
-    @property
-    def grid_hash(self) -> str:
-        """Stable identity, so the client can tell one grid from another."""
-        digest = hashlib.sha256()
-        for array in (self.vertices, self.cell_indices, self.top, self.botm):
-            digest.update(np.ascontiguousarray(array).tobytes())
-        return digest.hexdigest()[:16]
 
 
 def hex_footprint(

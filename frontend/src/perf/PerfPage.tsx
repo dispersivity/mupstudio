@@ -47,7 +47,7 @@ export function PerfPage({
         const viewport = await createViewport(canvas);
 
         setStatus("building grid on the server");
-        const catalog = await fetchCatalog(params);
+        const catalog = await fetchCatalog("demo", params);
         await client.connect();
 
         setStatus(`uploading ${catalog.ncells.toLocaleString()} cells`);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createViewport } from "@/viewport";
 import type { Viewport } from "@/viewport/types";
 import { fetchCatalog, ViewportClient, type DatasetCatalog } from "@/net/viewportClient";
+import type { DatasetListing } from "@/results/DatasetPicker";
 import { Colorbar } from "./Colorbar";
 import { TimeControls } from "./TimeControls";
 import { ViewportInspector, type ViewSettings } from "./ViewportInspector";
@@ -12,12 +13,18 @@ type Phase =
   | { status: "failed"; detail: string };
 
 export interface ViewportHostProps {
+  /** "demo" for the synthetic grid, or a run id. */
+  datasetId?: string;
+  /** Only used by the demo dataset, which is generated to order. */
   ncpl?: number;
   nlay?: number;
   ntimes?: number;
   playbackFps?: number;
   /** Lets the shell render this viewport's controls in its own inspector pane. */
   onInspector?: (panel: React.ReactNode) => void;
+  /** The dataset list and switcher, rendered inside the inspector. */
+  listing?: DatasetListing | null;
+  onSelectDataset?: (datasetId: string) => void;
 }
 
 /**
@@ -28,11 +35,14 @@ export interface ViewportHostProps {
  * the viewport's imperative API.
  */
 export function ViewportHost({
+  datasetId = "demo",
   ncpl = 20_000,
   nlay = 6,
   ntimes = 40,
   playbackFps = 12,
   onInspector,
+  listing = null,
+  onSelectDataset,
 }: ViewportHostProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<Viewport | null>(null);
@@ -43,6 +53,7 @@ export function ViewportHost({
   const [timeStride, setTimeStride] = useState(1);
   const [timestep, setTimestep] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [component, setComponent] = useState<string | null>(null);
   const [dataRange, setDataRange] = useState<[number, number]>([0, 1]);
   const [view, setView] = useState<ViewSettings>({
     colormap: "viridis",
@@ -59,9 +70,13 @@ export function ViewportHost({
 
     let disposed = false;
     let viewport: Viewport | null = null;
-    const client = new ViewportClient(
-      new URLSearchParams({ ncpl: String(ncpl), nlay: String(nlay), ntimes: String(ntimes) }),
-    );
+    const params = new URLSearchParams({
+      dataset: datasetId,
+      ncpl: String(ncpl),
+      nlay: String(nlay),
+      ntimes: String(ntimes),
+    });
+    const client = new ViewportClient(params);
 
     (async () => {
       try {
@@ -74,12 +89,7 @@ export function ViewportHost({
         viewportRef.current = viewport;
 
         setPhase({ status: "loading", detail: "fetching catalog" });
-        const params = new URLSearchParams({
-          ncpl: String(ncpl),
-          nlay: String(nlay),
-          ntimes: String(ntimes),
-        });
-        const loaded = await fetchCatalog(params);
+        const loaded = await fetchCatalog(datasetId, params);
         if (disposed) return;
         setCatalog(loaded);
 
@@ -90,9 +100,17 @@ export function ViewportHost({
         viewport.setGrid(await client.getGeometry(loaded));
         if (disposed) return;
 
-        const component = loaded.components[0]?.name ?? "concentration";
-        setPhase({ status: "loading", detail: "loading timesteps" });
-        const scalars = await client.getScalars(component, loaded);
+        // Keep the chosen component across a reload when the new dataset also
+        // has it, so switching runs does not silently change what you compare.
+        const available = loaded.components.map((entry) => entry.name);
+        const chosen =
+          component && available.includes(component)
+            ? component
+            : (available[0] ?? "concentration");
+        setComponent(chosen);
+
+        setPhase({ status: "loading", detail: `loading ${chosen}` });
+        const scalars = await client.getScalars(chosen, loaded);
         if (disposed) return;
 
         viewport.setScalars(scalars);
@@ -119,7 +137,10 @@ export function ViewportHost({
       viewport?.destroy();
       viewportRef.current = null;
     };
-  }, [ncpl, nlay, ntimes]);
+    // component is deliberately not a dependency: it is read to preserve the
+    // selection, and changing it goes through reloadComponent below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId, ncpl, nlay, ntimes]);
 
   // Keep the drawing buffer matched to the element's pixel size.
   useEffect(() => {
@@ -157,6 +178,44 @@ export function ViewportHost({
     setView((current) => ({ ...current, ...next }));
   }, []);
 
+  /** Load a different component into the same grid, reusing the geometry. */
+  const selectComponent = useCallback(
+    async (next: string) => {
+      const viewport = viewportRef.current;
+      if (!viewport || !catalog || next === component) return;
+
+      setPhase({ status: "loading", detail: `loading ${next}` });
+      const params = new URLSearchParams({
+        dataset: datasetId,
+        ncpl: String(ncpl),
+        nlay: String(nlay),
+        ntimes: String(ntimes),
+      });
+      const client = new ViewportClient(params);
+      try {
+        await client.connect();
+        const scalars = await client.getScalars(next, catalog);
+        viewport.setScalars(scalars);
+        setComponent(next);
+        setTimes(scalars.times);
+        setTimeStride(scalars.timeStride);
+        setDataRange([scalars.vmin, scalars.vmax]);
+        setView((current) =>
+          current.autoRange ? { ...current, vmin: scalars.vmin, vmax: scalars.vmax } : current,
+        );
+        setPhase({ status: "ready" });
+      } catch (error) {
+        setPhase({
+          status: "failed",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        client.close();
+      }
+    },
+    [catalog, component, datasetId, ncpl, nlay, ntimes],
+  );
+
   // Hand the shell this viewport's controls so they render in its inspector.
   useEffect(() => {
     if (!onInspector) return;
@@ -168,14 +227,26 @@ export function ViewportHost({
       <ViewportInspector
         settings={view}
         dataRange={dataRange}
-        cells={catalog.ncells}
-        layers={catalog.nlay}
-        component={catalog.components[0]?.name ?? "—"}
-        unit={catalog.components[0]?.unit ?? ""}
+        catalog={catalog}
+        component={component ?? catalog.components[0]?.name ?? "—"}
+        listing={listing}
         onChange={updateView}
+        onSelectComponent={selectComponent}
+        onSelectDataset={onSelectDataset}
       />,
     );
-  }, [onInspector, phase.status, catalog, view, dataRange, updateView]);
+  }, [
+    onInspector,
+    phase.status,
+    catalog,
+    view,
+    dataRange,
+    updateView,
+    component,
+    listing,
+    selectComponent,
+    onSelectDataset,
+  ]);
 
   useEffect(() => {
     if (!playing || times.length < 2) return;
@@ -213,18 +284,27 @@ export function ViewportHost({
       {phase.status === "ready" && catalog && (
         <>
           <div className="pointer-events-none absolute left-4 top-4 rounded bg-black/40 px-3 py-2 text-xs text-zinc-300 backdrop-blur-sm">
-            <div className="font-medium text-zinc-100">{catalog.ncells.toLocaleString()} cells</div>
-            <div className="tabular-nums">
-              {catalog.ncpl.toLocaleString()} per layer × {catalog.nlay} layers
+            <div className="font-medium text-zinc-100">
+              {component ?? catalog.components[0]?.name}
             </div>
+            <div className="tabular-nums">
+              {catalog.ncells.toLocaleString()} cells, {catalog.nlay}{" "}
+              {catalog.nlay === 1 ? "layer" : "layers"}
+            </div>
+            {catalog.status && catalog.status !== "succeeded" && (
+              <div className="mt-1 text-amber-300">
+                run {catalog.status}
+                {catalog.status === "failed" ? " — partial results" : ""}
+              </div>
+            )}
           </div>
 
           <Colorbar
             colormap={view.colormap}
             vmin={view.vmin}
             vmax={view.vmax}
-            unit={catalog.components[0]?.unit}
-            label={catalog.components[0]?.name}
+            unit={catalog.components.find((entry) => entry.name === component)?.unit}
+            label={component ?? catalog.components[0]?.name}
           />
 
           <TimeControls

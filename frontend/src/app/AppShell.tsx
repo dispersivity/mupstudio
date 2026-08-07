@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ViewportHost } from "@/viewport-host/ViewportHost";
+import { fetchDatasetListing } from "@/net/viewportClient";
+import type { DatasetListing } from "@/results/DatasetPicker";
 import { StepPlaceholder } from "./StepPlaceholder";
 import { WorkflowRail } from "./WorkflowRail";
 import { IMPLEMENTED, type StepId, type StepStatus } from "./workflow";
@@ -21,6 +23,20 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
   const [active, setActive] = useState<StepId>("results");
   const [railExpanded, setRailExpanded] = useState(true);
   const [inspector, setInspector] = useState<React.ReactNode>(null);
+  const [listing, setListing] = useState<DatasetListing | null>(null);
+  const [datasetId, setDatasetId] = useState("demo");
+
+  // Prefer a real run over the synthetic demo when one is available: seeing
+  // your own model beats seeing a fabricated one.
+  useEffect(() => {
+    fetchDatasetListing()
+      .then((found) => {
+        setListing(found);
+        const usable = found.runs.find((run) => run.hasResults);
+        if (usable) setDatasetId((current) => (current === "demo" ? usable.id : current));
+      })
+      .catch(() => setListing(null));
+  }, []);
 
   // Only Results has data behind it today; the rest are honestly empty.
   const statuses: Partial<Record<StepId, StepStatus>> = {
@@ -38,12 +54,20 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar step={active} demo={{ ncpl, nlay, ntimes }} />
+        <TopBar step={active} datasetId={datasetId} listing={listing} />
 
         <div className="flex min-h-0 flex-1">
           <main className="min-w-0 flex-1">
             {active === "results" ? (
-              <ViewportHost ncpl={ncpl} nlay={nlay} ntimes={ntimes} onInspector={setInspector} />
+              <ViewportHost
+                datasetId={datasetId}
+                ncpl={ncpl}
+                nlay={nlay}
+                ntimes={ntimes}
+                onInspector={setInspector}
+                listing={listing}
+                onSelectDataset={setDatasetId}
+              />
             ) : (
               <StepPlaceholder step={active} onGoToResults={() => setActive("results")} />
             )}
@@ -66,11 +90,16 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
 
 function TopBar({
   step,
-  demo,
+  datasetId,
+  listing,
 }: {
   step: StepId;
-  demo: { ncpl: number; nlay: number; ntimes: number };
+  datasetId: string;
+  listing: DatasetListing | null;
 }) {
+  const run = listing?.runs.find((entry) => entry.id === datasetId);
+  const showing = datasetId === "demo" ? "Synthetic demo" : (run?.label ?? datasetId);
+
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-4">
       <div className="flex items-center gap-3">
@@ -82,11 +111,15 @@ function TopBar({
         )}
       </div>
 
-      <div className="flex items-center gap-3 text-[10px] text-zinc-500">
-        <span className="rounded bg-amber-500/15 px-2 py-0.5 text-amber-300">demo data</span>
-        <span className="tabular-nums">
-          {demo.ncpl.toLocaleString()} × {demo.nlay} × {demo.ntimes} steps
-        </span>
+      <div className="flex items-center gap-3 text-[10px]">
+        <span className="text-zinc-400">{showing}</span>
+        {datasetId === "demo" ? (
+          <span className="rounded bg-amber-500/15 px-2 py-0.5 text-amber-300">demo data</span>
+        ) : (
+          <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-emerald-300">
+            {run?.engine ?? "run"}
+          </span>
+        )}
       </div>
     </header>
   );

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { COLORMAP_NAMES, colormapCss, type ColormapName } from "@/viewport/scalars/colormap";
+import type { DatasetCatalog } from "@/net/viewportClient";
+import { DatasetPicker, type DatasetListing } from "@/results/DatasetPicker";
 
 export interface ViewSettings {
   colormap: ColormapName;
@@ -20,33 +22,66 @@ export interface ViewSettings {
 export function ViewportInspector({
   settings,
   dataRange,
-  cells,
-  layers,
+  catalog,
   component,
-  unit,
+  listing,
   onChange,
+  onSelectComponent,
+  onSelectDataset,
 }: {
   settings: ViewSettings;
   dataRange: [number, number];
-  cells: number;
-  layers: number;
+  catalog: DatasetCatalog;
   component: string;
-  unit: string;
+  listing: DatasetListing | null;
   onChange: (next: Partial<ViewSettings>) => void;
+  onSelectComponent: (name: string) => void;
+  onSelectDataset?: (datasetId: string) => void;
 }) {
+  const unit = catalog.components.find((entry) => entry.name === component)?.unit ?? "";
+
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto p-4 text-xs text-zinc-300">
+      {onSelectDataset && (
+        <Section title="Dataset">
+          <DatasetPicker listing={listing} active={catalog.dataset} onSelect={onSelectDataset} />
+        </Section>
+      )}
+
       <Section title="Field">
-        <Field label="Component">
-          <div className="text-zinc-100">
-            {component} <span className="text-zinc-500">({unit})</span>
-          </div>
+        <Field label={`Component (${unit || "no unit"})`}>
+          {catalog.components.length > 1 ? (
+            <select
+              value={component}
+              onChange={(event) => onSelectComponent(event.target.value)}
+              aria-label="Component"
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-100"
+            >
+              {catalog.components.map((entry) => (
+                <option key={entry.name} value={entry.name}>
+                  {entry.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-zinc-100">{component}</div>
+          )}
         </Field>
-        <Field label="Cells">
+        <Field label="Grid">
           <span className="tabular-nums text-zinc-100">
-            {cells.toLocaleString()} in {layers} layers
+            {catalog.ncells.toLocaleString()} cells, {catalog.nlay}{" "}
+            {catalog.nlay === 1 ? "layer" : "layers"}
           </span>
         </Field>
+        {catalog.warnings && catalog.warnings.length > 0 && (
+          <Field label="Warnings">
+            <ul className="space-y-1 text-[10px] text-amber-300">
+              {catalog.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </Field>
+        )}
       </Section>
 
       <Section title="Colour">

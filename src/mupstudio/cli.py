@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -155,6 +156,73 @@ def _serve_check(application: object, *, host: str, port: int) -> None:
         thread.join(timeout=10)
 
     typer.echo("serve --check passed")
+
+
+@app.command("import-run")
+def import_run(
+    workdir: Annotated[Path, typer.Argument(help="A finished mf6rtm/MODFLOW 6 run directory")],
+    label: Annotated[str | None, typer.Option(help="Name to show in the app")] = None,
+) -> None:
+    """Register an existing run directory and collect its results.
+
+    Use this to look at a model you ran outside mupstudio: it reads the grid
+    and output in place and writes the normalized results the viewport reads.
+    """
+    import uuid
+
+    from mupstudio.engines.mf6rtm import results as reader
+    from mupstudio.jobs.registry import RunRecord, RunRegistry
+    from mupstudio.results.store import collect_mf6rtm_run
+
+    workdir = workdir.expanduser().resolve()
+    if not reader.looks_like_run_output(workdir):
+        typer.echo(
+            f"{workdir} does not look like mf6rtm output: expected a .grb grid file "
+            "and at least one .ucn concentration file",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    run_id = f"r_{uuid.uuid4().hex[:10]}"
+    registry = RunRegistry()
+    registry.add(
+        RunRecord(
+            run_id=run_id,
+            engine="mf6rtm",
+            label=label or workdir.name,
+            workdir=str(workdir),
+            state="succeeded",
+        )
+    )
+
+    typer.echo(f"reading {workdir}")
+    catalog = collect_mf6rtm_run(workdir, workdir / "results", run_id=run_id)
+
+    typer.echo(f"run id:     {run_id}")
+    typer.echo(f"components: {', '.join(str(entry['name']) for entry in catalog.components)}")
+    typer.echo(f"cells:      {catalog.ncells:,} in {catalog.nlay} layers")
+    typer.echo(f"timesteps:  {len(catalog.times)}")
+    for warning in catalog.warnings:
+        typer.echo(f"warning:    {warning}", err=True)
+    typer.echo(f"\nopen it with: mupstudio serve   then pick '{label or workdir.name}'")
+
+
+@app.command()
+def runs() -> None:
+    """List runs mupstudio knows about."""
+    from mupstudio.jobs.registry import RunRegistry
+
+    records = RunRegistry().recent(50)
+    if not records:
+        typer.echo("no runs yet; add one with: mupstudio import-run <directory>")
+        return
+
+    for record in records:
+        results = "results" if record.has_results else "no results"
+        typer.echo(
+            f"{record.run_id}  {record.state:<10} {record.engine:<8} "
+            f"{results:<11} {record.label or record.workdir}"
+        )
 
 
 @app.command("get-engines")

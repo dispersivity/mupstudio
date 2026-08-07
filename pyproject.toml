@@ -35,6 +35,9 @@ dependencies = [
     "mf6rtm>=0.5",
     "numpy>=1.26",
     "pandas>=2.2",
+    # Selected output is one row per cell per timestep, so a real model writes
+    # tens of millions of rows. Parquet keeps that readable; CSV does not.
+    "pyarrow>=17",
     "geopandas>=1.0",
     "shapely>=2.0",
     "rasterio>=1.3",

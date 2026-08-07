@@ -35,10 +35,15 @@ export function Colorbar({
     return `linear-gradient(to top, ${stops.join(", ")})`;
   }, [colormap]);
 
-  const ticks = Array.from({ length: TICKS }, (_, index) => {
-    const t = index / (TICKS - 1);
-    return { t, value: vmin + (vmax - vmin) * t };
-  });
+  // A constant field would otherwise print the same number at every tick,
+  // which reads as a broken axis rather than as a field that does not vary.
+  const constant = !Number.isFinite(vmax - vmin) || vmax - vmin === 0;
+  const ticks = constant
+    ? [{ t: 1, value: vmax }]
+    : Array.from({ length: TICKS }, (_, index) => {
+        const t = index / (TICKS - 1);
+        return { t, value: vmin + (vmax - vmin) * t };
+      });
 
   return (
     <div className="pointer-events-none absolute right-4 top-4 flex items-stretch gap-2 rounded bg-black/40 p-2 backdrop-blur-sm">
@@ -54,12 +59,15 @@ export function Colorbar({
           </div>
         ))}
       </div>
-      {(label || unit) && (
-        <div className="self-end text-[10px] text-zinc-400">
-          {label}
-          {unit ? ` (${unit})` : ""}
-        </div>
-      )}
+      <div className="flex flex-col justify-end gap-0.5 text-[10px]">
+        {constant && <span className="text-amber-300">constant</span>}
+        {(label || unit) && (
+          <span className="text-zinc-400">
+            {label}
+            {unit ? ` (${unit})` : ""}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from mupstudio.results.demo import demo_dataset, time_stride
+from mupstudio.results.datasets import demo_dataset, time_stride
 from mupstudio.server.app import create_app
 from mupstudio.server.ws.frames import decode
 
-SMALL = "?ncpl=200&nlay=3&ntimes=5"
+SMALL = "?dataset=demo&ncpl=200&nlay=3&ntimes=5"
 
 
 @pytest.fixture(scope="module")
@@ -115,7 +115,7 @@ class TestScalarFrames:
     def test_block_is_decimated_rather_than_truncated_when_over_budget(
         self, client: TestClient
     ) -> None:
-        full = demo_dataset(200, 3, 5).scalars["concentration"]
+        full = demo_dataset(200, 3, 5).all_timesteps("concentration")
         budget = full.nbytes // 2
 
         with client.websocket_connect(f"/api/v1/ws/viewport{SMALL}") as socket:
@@ -141,7 +141,7 @@ class TestScalarFrames:
         assert len(frame.header["times"]) == frame.array.shape[0]
 
     def test_single_timestep_matches_the_block(self, client: TestClient) -> None:
-        expected = demo_dataset(200, 3, 5).scalars["concentration"][2]
+        expected = demo_dataset(200, 3, 5).all_timesteps("concentration")[2]
 
         with client.websocket_connect(f"/api/v1/ws/viewport{SMALL}") as socket:
             socket.send_text(

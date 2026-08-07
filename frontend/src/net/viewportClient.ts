@@ -12,6 +12,11 @@ import type { GridGeometry, ScalarSet } from "@/viewport/types";
 
 export interface DatasetCatalog {
   dataset: string;
+  /** "synthetic" for the demo grid, "run" for a collected model run. */
+  kind?: string;
+  status?: string;
+  engine?: string;
+  warnings?: string[];
   gridHash: string;
   ncpl: number;
   nlay: number;
@@ -28,12 +33,26 @@ interface Pending {
   reject: (error: Error) => void;
 }
 
-export async function fetchCatalog(params: URLSearchParams): Promise<DatasetCatalog> {
-  const response = await fetch(`/api/v1/datasets/demo?${params}`);
+export async function fetchCatalog(
+  datasetId: string,
+  params: URLSearchParams,
+): Promise<DatasetCatalog> {
+  const response = await fetch(`/api/v1/datasets/${encodeURIComponent(datasetId)}?${params}`);
   if (!response.ok) {
-    throw new Error(`catalog request failed: ${response.status}`);
+    const detail = await response.text().catch(() => "");
+    throw new Error(`could not load dataset ${datasetId}: ${response.status} ${detail}`);
   }
   return (await response.json()) as DatasetCatalog;
+}
+
+export async function fetchDatasetListing(): Promise<
+  import("@/results/DatasetPicker").DatasetListing
+> {
+  const response = await fetch("/api/v1/datasets");
+  if (!response.ok) {
+    throw new Error(`dataset listing failed: ${response.status}`);
+  }
+  return await response.json();
 }
 
 export class ViewportClient {
