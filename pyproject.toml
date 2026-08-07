@@ -87,7 +87,9 @@ ignore = ["E501"]
 "tests/*" = ["B011"]
 
 [tool.mypy]
-python_version = "3.11"
+# No python_version pin: it makes mypy parse third-party stubs (numpy's, for
+# one) under an older grammar than they are written in. Ruff's target-version
+# is what keeps the source itself 3.11-compatible.
 warn_unused_configs = true
 ignore_missing_imports = true
 

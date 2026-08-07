@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from mupstudio import __version__
-from mupstudio.server.routers import system
+from mupstudio.server.routers import system, viewport
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "_static"
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -35,6 +35,7 @@ def create_app(*, dev: bool | None = None) -> FastAPI:
         summary="Build, run and visualise reactive transport models",
     )
     app.include_router(system.router, prefix="/api/v1")
+    app.include_router(viewport.router, prefix="/api/v1")
 
     if dev:
         app.add_middleware(

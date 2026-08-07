@@ -1,0 +1,64 @@
+[
+  {
+    "file": "scalar_f32.bin",
+    "kind": "scalar",
+    "dtype": "float32",
+    "shape": [
+      2,
+      3
+    ],
+    "component": "Ca",
+    "timeIdx": 3,
+    "values": [
+      1.5,
+      -2.25,
+      0.0,
+      3.75,
+      9.99999993922529e-09,
+      -100000000.0
+    ]
+  },
+  {
+    "file": "cell_offsets_i32.bin",
+    "kind": "mesh_cell_offsets",
+    "dtype": "int32",
+    "shape": [
+      4
+    ],
+    "values": [
+      0,
+      4,
+      8,
+      14
+    ]
+  },
+  {
+    "file": "vertices_f32.bin",
+    "kind": "mesh_vertices",
+    "dtype": "float32",
+    "shape": [
+      4,
+      2
+    ],
+    "gridHash": "abc123",
+    "values": [
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      1.0,
+      1.0,
+      0.0,
+      1.0
+    ]
+  },
+  {
+    "file": "empty_f32.bin",
+    "kind": "scalar",
+    "dtype": "float32",
+    "shape": [
+      0
+    ],
+    "values": []
+  }
+]
