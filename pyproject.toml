@@ -1,0 +1,105 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mupstudio"
+version = "0.1.0.dev0"
+description = "GUI for building, running and visualising reactive transport models (PHT3D, MF6RTM)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Pablo Ortega" }]
+keywords = [
+    "groundwater",
+    "reactive transport",
+    "modflow",
+    "phreeqc",
+    "pht3d",
+    "mf6rtm",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "flopy>=3.9",
+    "mf6rtm>=0.5",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "rasterio>=1.3",
+    "platformdirs>=4.0",
+    "typer>=0.15",
+    "zstandard>=0.23",
+]
+
+[project.optional-dependencies]
+hdf5 = ["tables>=3.10"]
+condor = ["htcondor>=23.0"]
+
+[project.scripts]
+mupstudio = "mupstudio.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/dispersivity/mupstudio"
+Issues = "https://github.com/dispersivity/mupstudio/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mupstudio"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/mupstudio", "frontend", "tests", "hatch_build.py", "LICENSE", "README.md"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["mupstudio.schema.*", "mupstudio.engines.pht3d.*"]
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "pht3d: requires the PHT3D executable",
+    "mf6: requires MODFLOW 6 executables",
+    "slow: long-running test",
+]

@@ -1,0 +1,4 @@
+# esbuild ships a prebuilt binary that its install script links into place.
+# pnpm blocks build scripts by default, so it has to be allowed explicitly.
+allowBuilds:
+  esbuild: true

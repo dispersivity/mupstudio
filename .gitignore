@@ -1,0 +1,38 @@
+# planning notes, not part of the package
+planning/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# generated frontend bundle
+src/mupstudio/_static/
+
+# node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# playwright
+e2e/test-results/
+e2e/playwright-report/
+
+# model runs and engine binaries
+bin/
+*.mup/cache/
+*.mup/runs/
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
