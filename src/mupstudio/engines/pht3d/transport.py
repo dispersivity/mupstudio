@@ -115,11 +115,11 @@ def write_transport(
         # PHT3D reads species names from pht3d_ph.dat, but writing them here as
         # well is what makes the BTN readable by a person checking the deck.
         species_names=[component.name for component in components],
-        delr=grid.delr,
-        delc=grid.delc,
-        htop=grid.top,
-        dz=_layer_thicknesses(grid),
-        prsity=properties["transport_porosity"],
+        delr=uniform_or_array(grid.delr),
+        delc=uniform_or_array(grid.delc),
+        htop=uniform_or_array(grid.top),
+        dz=uniform_or_array(_layer_thicknesses(grid)),
+        prsity=uniform_or_array(properties["transport_porosity"]),
         icbund=1,
         # FloPy takes the first component's initial concentration as ``sconc``
         # and every later one as ``sconc2``, ``sconc3`` and so on, rather than
@@ -142,24 +142,30 @@ def write_transport(
     if project.transport.dispersion.enabled:
         flopy.mt3d.Mt3dDsp(
             mt,
-            al=properties["alh"],
+            al=uniform_or_array(properties["alh"]),
             # MT3DMS takes the transverse dispersivities as ratios to the
             # longitudinal one, where MODFLOW 6 takes them as lengths; and it
             # takes one value per layer where MODFLOW 6 takes one per cell.
-            trpt=_per_layer(
-                _ratio(properties["ath1"], properties["alh"]),
-                "the horizontal transverse dispersivity ratio",
-                warnings,
+            trpt=uniform_or_array(
+                _per_layer(
+                    _ratio(properties["ath1"], properties["alh"]),
+                    "the horizontal transverse dispersivity ratio",
+                    warnings,
+                )
             ),
-            trpv=_per_layer(
-                _ratio(properties["atv"], properties["alh"]),
-                "the vertical transverse dispersivity ratio",
-                warnings,
+            trpv=uniform_or_array(
+                _per_layer(
+                    _ratio(properties["atv"], properties["alh"]),
+                    "the vertical transverse dispersivity ratio",
+                    warnings,
+                )
             ),
             # The diffusion coefficient is read as a column of one value per
             # layer rather than as a flat list, unlike the ratios above.
-            dmcoef=_per_layer(properties["diffc"], "the diffusion coefficient", warnings).reshape(
-                -1, 1
+            dmcoef=uniform_or_array(
+                _per_layer(properties["diffc"], "the diffusion coefficient", warnings).reshape(
+                    -1, 1
+                )
             ),
         )
 
@@ -180,9 +186,23 @@ def write_transport(
     )
 
 
+def uniform_or_array(values: np.ndarray) -> float | np.ndarray:
+    """A single number where every cell has the same one.
+
+    Not a size optimisation. FloPy writes a varying array with a header naming
+    an external Fortran unit to read it from, and PHT3D never opens that unit:
+    it stops and asks the terminal for a file name. A constant is written
+    inline, which is both what PHT3D can read and what the published decks
+    contain.
+    """
+    array = np.asarray(values, dtype=np.float64)
+    first = array.flat[0]
+    return float(first) if bool(np.all(array == first)) else array
+
+
 def _initial_concentrations(
     components: list[Component], initial: dict[str, np.ndarray]
-) -> dict[str, np.ndarray]:
+) -> dict[str, float | np.ndarray]:
     """Starting concentrations, named the way FloPy's BTN expects them.
 
     A component missing from ``initial`` is an equilibration that did not
@@ -198,7 +218,9 @@ def _initial_concentrations(
         )
 
     return {
-        ("sconc" if index == 0 else f"sconc{index + 1}"): _floor(initial[component.name])
+        ("sconc" if index == 0 else f"sconc{index + 1}"): uniform_or_array(
+            _floor(initial[component.name])
+        )
         for index, component in enumerate(components)
     }
 

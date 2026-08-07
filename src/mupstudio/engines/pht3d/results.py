@@ -27,12 +27,14 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# The line PHT3D prints per transport step. Scraping it is the only progress
-# signal there is: PHT3D has no callback and writes nothing structured.
-PROGRESS = re.compile(
-    r"STRESS PERIOD\s+NO\.\s*(?P<kper>\d+).*?TIME STEP\s+NO\.\s*(?P<kstp>\d+)",
-    re.IGNORECASE | re.DOTALL,
-)
+# What PHT3D prints as it goes. Scraping it is the only progress signal there
+# is: PHT3D has no callback and writes nothing structured.
+#
+# The two numbers arrive on separate lines and far apart — the stress period is
+# announced once, then every time step within it — so they are matched
+# separately and a reader keeps the last period it saw.
+PERIOD = re.compile(r"STRESS PERIOD\s+NO\.\s*(\d+)", re.IGNORECASE)
+STEP = re.compile(r"TIME STEP\s+NO\.\s*(\d+)", re.IGNORECASE)
 
 UCN_PATTERN = re.compile(r"^PHT3D(\d{3})\.UCN$", re.IGNORECASE)
 
@@ -119,9 +121,39 @@ def looks_like_run_output(workdir: Path) -> bool:
     return Path(workdir).is_dir() and bool(discover_output(workdir))
 
 
+class ProgressReader:
+    """Turns PHT3D's listing into the stress period and time step it is on.
+
+    Stateful because the output is: the stress period is announced once and
+    every time step under it says only its own number. A reader that looked at
+    one line at a time would report the step and never the period.
+    """
+
+    def __init__(self) -> None:
+        self.kper = 1
+        self.kstp = 0
+
+    def feed(self, line: str) -> tuple[int, int] | None:
+        """Read one line; return the position if this line moved it."""
+        period = PERIOD.search(line)
+        if period is not None:
+            self.kper = int(period.group(1))
+            # Announcing a period is not itself progress through it; the first
+            # step of that period will follow and is what to report.
+            return None
+
+        step = STEP.search(line)
+        if step is None:
+            return None
+        self.kstp = int(step.group(1))
+        return self.kper, self.kstp
+
+
 def parse_progress(line: str) -> tuple[int, int] | None:
-    """The stress period and time step a log line reports, if it reports one."""
-    match = PROGRESS.search(line)
-    if match is None:
-        return None
-    return int(match.group("kper")), int(match.group("kstp"))
+    """The period and step one line reports, for a caller keeping no state.
+
+    Only ever finds a step, since a period arrives on its own line. Use
+    ``ProgressReader`` where the period matters.
+    """
+    step = STEP.search(line)
+    return (1, int(step.group(1))) if step else None
