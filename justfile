@@ -67,6 +67,7 @@ smoke: wheel
     "$tmp/venv/bin/mupstudio" serve --check
     rm -rf "$tmp"
 
-# viewport performance harness (the 120fps gate)
-perf:
-    pnpm --dir frontend perf
+# viewport performance harness (the 120fps gate); needs `just dev` running
+perf ncpl="50000" nlay="10" frames="200":
+    node frontend/scripts/perf.mjs --url http://localhost:5173 \
+      --ncpl {{ncpl}} --nlay {{nlay}} --frames {{frames}} --channel chromium

@@ -48,7 +48,13 @@ export interface FrameHeader {
   [key: string]: unknown;
 }
 
-export type FrameArray = Float32Array | Int32Array | Uint32Array | Uint8Array;
+// Parameterised on ArrayBuffer (not ArrayBufferLike) because these views go
+// straight to WebGPU, which rejects SharedArrayBuffer-backed views.
+export type FrameArray =
+  | Float32Array<ArrayBuffer>
+  | Int32Array<ArrayBuffer>
+  | Uint32Array<ArrayBuffer>
+  | Uint8Array<ArrayBuffer>;
 
 export interface Frame {
   header: FrameHeader;

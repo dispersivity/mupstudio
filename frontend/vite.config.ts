@@ -15,8 +15,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: BACKEND, changeOrigin: true },
-      "/ws": { target: BACKEND, ws: true, changeOrigin: true },
+      // ws:true because the viewport socket lives at /api/v1/ws/viewport;
+      // without it the upgrade request is proxied as plain HTTP and hangs.
+      "/api": { target: BACKEND, changeOrigin: true, ws: true },
     },
   },
   build: {
