@@ -47,6 +47,13 @@ class WellPackage(BaseModel):
     id: Id
     cells: CellSelection
     rate: TimeSeries
+    concentration: TimeSeries | None = Field(
+        default=None,
+        description=(
+            "Solute concentration of the inflow. Used for a conservative tracer run; "
+            "a reactive run takes it from the boundary chemistry instead."
+        ),
+    )
 
 
 class ConstantHeadPackage(BaseModel):
@@ -56,6 +63,9 @@ class ConstantHeadPackage(BaseModel):
     id: Id
     cells: CellSelection
     head: TimeSeries
+    concentration: TimeSeries | None = Field(
+        default=None, description="Solute concentration of water entering here"
+    )
 
 
 class RechargePackage(BaseModel):
@@ -64,6 +74,9 @@ class RechargePackage(BaseModel):
     kind: Literal["recharge"] = "recharge"
     id: Id
     rate: TimeSeries
+    concentration: TimeSeries | None = Field(
+        default=None, description="Solute concentration of the recharge"
+    )
     cells: CellSelection | None = Field(
         default=None, description="Where it applies; the whole top layer if omitted"
     )
@@ -83,6 +96,10 @@ class SolverOptions(BaseModel):
     outer_dvclose: float = Field(default=1e-6, gt=0)
     inner_dvclose: float = Field(default=1e-6, gt=0)
     complexity: Literal["simple", "moderate", "complex"] = "moderate"
+
+
+# Boundary kinds that introduce water, and so can introduce solute.
+SOLUTE_CARRYING = frozenset({"well", "chd", "recharge"})
 
 
 class FlowModel(BaseModel):

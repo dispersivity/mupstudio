@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import socket
-import sys
 import threading
 import time
 import webbrowser
@@ -301,13 +300,16 @@ def get_engines(
         typer.echo("flopy is required to fetch executables: pip install flopy", err=True)
         raise typer.Exit(code=1) from None
 
-    typer.echo(f"fetching mf6, mf2005, gridgen, triangle into {target}")
-    argv = sys.argv
-    sys.argv = ["get-modflow", str(target), "--subset", "mf6,libmf6,mf2005,gridgen,triangle"]
+    typer.echo(f"fetching mf6, libmf6, mf2005, gridgen and triangle into {target}")
     try:
-        get_modflow.main()
-    finally:
-        sys.argv = argv
+        get_modflow(
+            bindir=str(target),
+            subset="mf6,libmf6,mf2005,gridgen,triangle",
+            quiet=False,
+        )
+    except Exception as error:
+        typer.echo(f"could not fetch executables: {error}", err=True)
+        raise typer.Exit(code=1) from error
 
     if pht3d:
         typer.echo(
