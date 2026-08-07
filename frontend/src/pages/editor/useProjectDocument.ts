@@ -33,6 +33,10 @@ export function useProjectDocument(path: string | null) {
   const [problems, setProblems] = useState<FieldProblem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [savedSummary, setSavedSummary] = useState<string | null>(null);
+  // Bumped on every successful save. Anything derived from what is on disk —
+  // the drawn model, most of all — watches this rather than the document, so it
+  // refreshes when the edit lands and not on every keystroke.
+  const [revision, setRevision] = useState(0);
 
   const reload = useCallback(async () => {
     if (!path) {
@@ -85,6 +89,7 @@ export function useProjectDocument(path: string | null) {
         setDocument(body.document);
         setDirty(false);
         setSavedSummary(body.detail?.summary ?? "saved");
+        setRevision((value) => value + 1);
       }
       return body.ok;
     } catch (problem) {
@@ -99,6 +104,7 @@ export function useProjectDocument(path: string | null) {
     document,
     dirty,
     saving,
+    revision,
     problems,
     error,
     savedSummary,

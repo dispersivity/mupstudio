@@ -8,6 +8,7 @@ import {
   Select,
   TextInput,
 } from "./editor/controls";
+import { ModelPreview } from "@/preview/ModelPreview";
 import { gridLimits, type Limits } from "./editor/grid";
 import { useProjectDocument, type ProjectDocument } from "./editor/useProjectDocument";
 
@@ -79,6 +80,10 @@ export function FlowStep({
 }) {
   const editor = useProjectDocument(path);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // What the viewport draws. Opening a package points it at that package's
+  // cells, so checking boundaries one by one is what the screen is for; the
+  // picker above the canvas still allows anything else.
+  const [drawn, setDrawn] = useState<string>("k");
 
   if (!path) return <NoProject onGo={onGoToProject} />;
   if (!editor.document) return <div className="p-6 text-xs text-zinc-500">Loading…</div>;
@@ -101,8 +106,19 @@ export function FlowStep({
         if (await editor.save()) onSaved();
       }}
       onRevert={() => void editor.reload()}
+      preview={
+        <ModelPreview
+          path={path}
+          revision={editor.revision}
+          field={drawn}
+          onFieldChange={setDrawn}
+          className="h-full"
+        />
+      }
     >
       <Section
+        field="k"
+        onShow={setDrawn}
         title="Properties"
         hint="One value everywhere for now. Values per zone arrive with the map-based builder."
       >
@@ -190,7 +206,11 @@ export function FlowStep({
               <div className="flex items-center gap-3 px-3 py-2">
                 <button
                   type="button"
-                  onClick={() => setExpanded(expanded === item.id ? null : item.id)}
+                  onClick={() => {
+                    const opening = expanded !== item.id;
+                    setExpanded(opening ? item.id : null);
+                    if (opening) setDrawn(`boundary:${item.id}`);
+                  }}
                   className="flex-1 text-left"
                 >
                   <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
@@ -233,6 +253,7 @@ export function FlowStep({
                   const created = newBoundary(item.kind, draft, limits);
                   draft.flow.packages.push(created);
                   setExpanded(created.id);
+                  setDrawn(`boundary:${created.id}`);
                 })
               }
               className="rounded border border-zinc-700 px-2 py-1 font-mono text-[10px] text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"

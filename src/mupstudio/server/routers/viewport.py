@@ -8,6 +8,7 @@ encoder, so the client cannot tell them apart beyond what the catalog says.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -31,12 +32,19 @@ router = APIRouter(tags=["viewport"])
 _messages = TypeAdapter[ClientMessage](ClientMessage)
 
 DEMO = "demo"
+# A project's inputs rather than a run's outputs. The rest of the id is the
+# project directory, so the builder screens can draw the model being edited
+# through exactly the same socket the results use.
+PREVIEW = "preview:"
 
 
 def resolve(dataset_id: str, ncpl: int, nlay: int, ntimes: int) -> ds.Dataset:
     """Find a dataset by id, or say clearly why it cannot be served."""
     if dataset_id == DEMO:
         return ds.demo_dataset(ncpl, nlay, ntimes)
+
+    if dataset_id.startswith(PREVIEW):
+        return _preview(dataset_id[len(PREVIEW) :])
 
     from mupstudio.jobs.registry import RunRegistry
 
@@ -49,6 +57,24 @@ def resolve(dataset_id: str, ncpl: int, nlay: int, ntimes: int) -> ds.Dataset:
             detail=f"run {dataset_id} has no collected results (state: {record.state})",
         )
     return ds.open_run(record.results_dir)
+
+
+def _preview(path: str) -> ds.Dataset:
+    """A project as it is now, compiled.
+
+    Recompiled per request rather than cached: it is milliseconds for the grids
+    this path serves, and a cache would be one more thing that can show a
+    modeller the model they had rather than the one they have.
+    """
+    from mupstudio.compile.compiler import CompileError
+    from mupstudio.results.preview import preview_of
+    from mupstudio.server.routers.projects import load_project
+
+    project = load_project(path)
+    try:
+        return preview_of(project, root=Path(path))
+    except CompileError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.get("/datasets")
@@ -68,6 +94,17 @@ def list_datasets() -> dict[str, Any]:
         for record in RunRegistry().recent(50)
     ]
     return {"demo": {"id": DEMO, "kind": "synthetic"}, "runs": runs}
+
+
+@router.get("/datasets/preview")
+def preview_catalog(path: str) -> dict[str, Any]:
+    """The catalog for a project's inputs.
+
+    Its own endpoint because a project is addressed by a filesystem path, and a
+    path cannot go in a URL path segment: the slashes would be read as more
+    segments. The websocket takes it as a query parameter for the same reason.
+    """
+    return ds.catalog_of(_preview(path))
 
 
 @router.get("/datasets/{dataset_id}")

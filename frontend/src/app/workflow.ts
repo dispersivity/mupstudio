@@ -8,7 +8,6 @@
 export type StepId =
   | "project"
   | "data"
-  | "domain"
   | "grid"
   | "time"
   | "flow"
@@ -46,16 +45,9 @@ export const STEPS: Step[] = [
     milestone: "M4",
   },
   {
-    id: "domain",
-    label: "Domain",
-    purpose: "Draw or import the model boundary.",
-    dependsOn: ["project"],
-    milestone: "M4",
-  },
-  {
     id: "grid",
     label: "Grid",
-    purpose: "Cell spacing along each axis, and the layers stacked beneath the model top.",
+    purpose: "Where the model sits, how it is discretised, and the layers stacked beneath its top.",
     dependsOn: ["project"],
     milestone: "M4",
   },

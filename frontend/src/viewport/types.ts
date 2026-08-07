@@ -67,6 +67,15 @@ export interface Viewport {
   setLogScale(enabled: boolean): void;
   /** Draw cell outlines, so grid structure is visible. */
   setShowEdges(enabled: boolean): void;
+  /**
+   * Draw cells with no value as a dim shell instead of not at all.
+   *
+   * Wanted when a field applies to only some cells — where a boundary acts,
+   * which zone holds which minerals — because the cells that carry a value mean
+   * nothing without the grid around them. Not wanted for a grid with inactive
+   * regions, where a hole is the truth.
+   */
+  setGhostAbsent(enabled: boolean): void;
   setVerticalExaggeration(factor: number): void;
   /**
    * Scale the model along each world axis.

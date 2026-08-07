@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { EditorShell, Labelled, NoProject, NumberInput, Section, Select } from "./editor/controls";
+import { ModelPreview } from "@/preview/ModelPreview";
 import { useProjectDocument, type ProjectDocument } from "./editor/useProjectDocument";
 
 const SCHEMES = [
@@ -25,6 +27,9 @@ export function TransportStep({
   onSaved: () => void;
 }) {
   const editor = useProjectDocument(path);
+  // The field drawn beside the form. Focusing an input points the viewport at
+  // that property, so a value and its distribution are read together.
+  const [drawn, setDrawn] = useState("transport_porosity");
 
   if (!path) return <NoProject onGo={onGoToProject} />;
   if (!editor.document) return <div className="p-6 text-xs text-zinc-500">Loading…</div>;
@@ -48,8 +53,19 @@ export function TransportStep({
         if (await editor.save()) onSaved();
       }}
       onRevert={() => void editor.reload()}
+      preview={
+        <ModelPreview
+          path={path}
+          revision={editor.revision}
+          field={drawn}
+          onFieldChange={setDrawn}
+          className="h-full"
+        />
+      }
     >
       <Section
+        field="transport_porosity"
+        onShow={setDrawn}
         title="Porosity"
         hint="Transport can use a different porosity from flow, for instance an effective porosity that excludes dead-end pores."
       >
@@ -84,6 +100,8 @@ export function TransportStep({
       </Section>
 
       <Section
+        field="alh"
+        onShow={setDrawn}
         title="Dispersion"
         hint="Leave everything at zero for a pure-advection test; the dispersion package is then not written at all."
       >

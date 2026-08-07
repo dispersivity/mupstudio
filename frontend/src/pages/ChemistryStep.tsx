@@ -10,6 +10,7 @@ import { useChemistryCheck, useDatabaseIndex, useDatabaseList } from "@/chem/dat
 import { DatabasePanel } from "@/chem/DatabasePanel";
 import { SolutionsPanel } from "@/chem/SolutionsPanel";
 import { BoundaryPanel, OutputPanel, ZonesPanel } from "@/chem/ZonesPanel";
+import { ModelPreview } from "@/preview/ModelPreview";
 import { EditorShell, NoProject } from "./editor/controls";
 import { cellCount, gridLimits } from "./editor/grid";
 import { useProjectDocument } from "./editor/useProjectDocument";
@@ -102,6 +103,14 @@ export function ChemistryStep({
         if (await editor.save()) onSaved();
       }}
       onRevert={() => void editor.reload()}
+      preview={
+        <ModelPreview
+          path={path}
+          revision={editor.revision}
+          initialField="chemistry:solution"
+          className="h-full"
+        />
+      }
     >
       <label className="mb-4 flex items-center gap-2 text-xs text-zinc-300">
         <input

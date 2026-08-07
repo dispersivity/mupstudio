@@ -150,15 +150,14 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
             )}
           </main>
 
-          <aside className="hidden w-72 shrink-0 border-l border-zinc-800 bg-zinc-900 lg:block xl:w-80">
-            {active === "results" && inspector ? (
-              inspector
-            ) : (
-              <div className="p-4 text-xs text-zinc-600">
-                Nothing to configure on this step yet.
-              </div>
-            )}
-          </aside>
+          {/* Only the results view puts its controls here. The builder steps
+              carry their own column beside their viewport, so an empty pane
+              would just be 320px of nothing next to a form that needs room. */}
+          {active === "results" && inspector && (
+            <aside className="hidden w-72 shrink-0 border-l border-zinc-800 bg-zinc-900 lg:block xl:w-80">
+              {inspector}
+            </aside>
+          )}
         </div>
       </div>
     </div>

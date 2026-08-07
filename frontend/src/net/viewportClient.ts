@@ -27,6 +27,12 @@ export interface DatasetCatalog {
   thinAxis?: "x" | "y" | null;
   times: number[];
   components: { name: string; unit: string; vmin: number; vmax: number }[];
+  /**
+   * What each component is, when the dataset says. A project preview groups its
+   * fields into properties, boundaries and chemistry so the picker can too; a
+   * run has no such distinction and omits this.
+   */
+  fields?: { name: string; label: string; kind: string; unit: string; setCells: number }[];
 }
 
 interface Pending {
@@ -35,11 +41,21 @@ interface Pending {
   reject: (error: Error) => void;
 }
 
+/** Dataset ids with this prefix name a project on disk, not a finished run. */
+export const PREVIEW = "preview:";
+
 export async function fetchCatalog(
   datasetId: string,
   params: URLSearchParams,
 ): Promise<DatasetCatalog> {
-  const response = await fetch(`/api/v1/datasets/${encodeURIComponent(datasetId)}?${params}`);
+  // A project preview is addressed by a filesystem path, which cannot sit in a
+  // URL path segment, so it has its own endpoint and passes the path as a
+  // query parameter.
+  const url = datasetId.startsWith(PREVIEW)
+    ? `/api/v1/datasets/preview?path=${encodeURIComponent(datasetId.slice(PREVIEW.length))}`
+    : `/api/v1/datasets/${encodeURIComponent(datasetId)}?${params}`;
+
+  const response = await fetch(url);
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new Error(`could not load dataset ${datasetId}: ${response.status} ${detail}`);

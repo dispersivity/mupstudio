@@ -13,6 +13,8 @@ export function EditorShell({
   onSave,
   onRevert,
   children,
+  preview,
+  aside,
 }: {
   title: string;
   blurb: string;
@@ -24,6 +26,17 @@ export function EditorShell({
   onSave: () => void;
   onRevert: () => void;
   children: React.ReactNode;
+  /**
+   * The model drawn.
+   *
+   * Given a preview, it becomes the centre of the screen and the form moves to
+   * a column beside it. That is the arrangement the whole app is built around:
+   * the figure is the thing being worked on, and the controls sit next to it.
+   * A picture in a corner is a picture nobody looks at.
+   */
+  preview?: React.ReactNode;
+  /** Rendered above the form, for a step whose form is a list of things. */
+  aside?: React.ReactNode;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -66,7 +79,17 @@ export function EditorShell({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+      {preview ? (
+        <div className="flex min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1 p-3">{preview}</div>
+          <div className="flex min-h-0 w-96 shrink-0 flex-col border-l border-zinc-800 2xl:w-[28rem]">
+            {aside}
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+      )}
     </div>
   );
 }
@@ -74,14 +97,25 @@ export function EditorShell({
 export function Section({
   title,
   hint,
+  field,
+  onShow,
   children,
 }: {
   title: string;
   hint?: string;
+  /**
+   * The drawable field this section is about, if any.
+   *
+   * Clicking into one of its inputs draws that field. Focus rather than a
+   * button beside every control: the gesture that says "I am looking at this"
+   * is already the one that starts editing it.
+   */
+  field?: string;
+  onShow?: (field: string) => void;
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-7">
+    <section className="mb-7" onFocusCapture={field && onShow ? () => onShow(field) : undefined}>
       <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{title}</h3>
       {hint && <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-zinc-600">{hint}</p>}
       <div className="mt-2">{children}</div>

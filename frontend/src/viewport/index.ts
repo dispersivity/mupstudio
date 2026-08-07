@@ -201,6 +201,8 @@ export async function createViewport(
   let logScale = false;
   let showEdges = options.showEdges ?? false;
   const nodata = options.nodata ?? -1e30;
+  // Whether cells with no value are drawn as a dim shell or not at all.
+  let ghostAbsent = false;
 
   const cameraListeners = new Set<(view: CameraView) => void>();
 
@@ -459,7 +461,7 @@ export async function createViewport(
   function writeUniforms() {
     uniformData.set(camera.viewProjection(), 0);
     uniformData.set([0, range[0], range[1], logScale ? 1 : 0], 16);
-    uniformData.set([geometry?.ncpl ?? 0, -1, nodata, 0], 20);
+    uniformData.set([geometry?.ncpl ?? 0, -1, nodata, ghostAbsent ? 1 : 0], 20);
     uniformData.set([...axisScale, 0], 24);
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
   }
@@ -571,6 +573,10 @@ export async function createViewport(
     },
     setShowEdges(enabled) {
       showEdges = enabled;
+      dirty = true;
+    },
+    setGhostAbsent(enabled) {
+      ghostAbsent = enabled;
       dirty = true;
     },
     setVerticalExaggeration(factor) {

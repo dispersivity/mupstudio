@@ -77,6 +77,17 @@ fn vertexMain(input: VertexIn, @builtin(instance_index) layer: u32) -> VertexOut
   return out;
 }
 
+// Whether a cell has a value at all.
+//
+// Two ways of saying "nothing here". A grid hole carries the nodata sentinel,
+// which is an ordinary number and compares equal. A field that only applies to
+// some cells — where a boundary acts, which minerals a zone holds — carries
+// not-a-number in the rest, and NaN compares equal to nothing, including
+// itself. That inequality is the only portable test for it: WGSL has no isnan.
+fn isAbsent(value: f32) -> bool {
+  return value != value || value == frame.gridInfo.z;
+}
+
 fn normalise(value: f32) -> f32 {
   let lo = frame.params.y;
   let hi = frame.params.z;
@@ -95,9 +106,15 @@ fn normalise(value: f32) -> f32 {
 
 @fragment
 fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
-  // Inactive cells carry a sentinel; drop them so holes in the grid are holes
-  // on screen rather than an arbitrary colour.
-  if (input.value == frame.gridInfo.z) {
+  if (isAbsent(input.value)) {
+    // A field that applies to a handful of cells needs the rest for context: a
+    // single bright cell floating in space says nothing about where it is. Drawn
+    // as a dim shell, the grid is still there and the cells that carry a value
+    // stand out of it. Off, absent cells are holes, which is what a grid with
+    // inactive regions wants.
+    if (frame.gridInfo.w > 0.5) {
+      return vec4<f32>(vec3<f32>(0.10, 0.11, 0.13) * input.shade, 1.0);
+    }
     discard;
   }
 
@@ -110,7 +127,7 @@ fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
 // whatever the axis scaling is, and needs no geometry of its own.
 @fragment
 fn fragmentEdge(input: VertexOut) -> @location(0) vec4<f32> {
-  if (input.value == frame.gridInfo.z) {
+  if (isAbsent(input.value)) {
     discard;
   }
   return vec4<f32>(0.06, 0.07, 0.09, 1.0);
@@ -122,7 +139,7 @@ fn fragmentEdge(input: VertexOut) -> @location(0) vec4<f32> {
 // from a click on cell 0.
 @fragment
 fn fragmentPick(input: VertexOut) -> @location(0) u32 {
-  if (input.value == frame.gridInfo.z) {
+  if (isAbsent(input.value)) {
     discard;
   }
   return input.cellId + 1u;
