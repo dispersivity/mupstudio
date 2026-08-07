@@ -10,7 +10,7 @@ export type StepId =
   | "data"
   | "domain"
   | "grid"
-  | "layers"
+  | "time"
   | "flow"
   | "transport"
   | "chemistry"
@@ -34,7 +34,7 @@ export const STEPS: Step[] = [
   {
     id: "project",
     label: "Project",
-    purpose: "Name the project, pick an engine, and choose how the grid gets built.",
+    purpose: "Name the project, choose its engine and units, and open or create one.",
     dependsOn: [],
     milestone: "M3",
   },
@@ -55,15 +55,15 @@ export const STEPS: Step[] = [
   {
     id: "grid",
     label: "Grid",
-    purpose: "Generate a structured, Voronoi or quadtree grid and refine it around features.",
-    dependsOn: ["domain"],
+    purpose: "Cell spacing along each axis, and the layers stacked beneath the model top.",
+    dependsOn: ["project"],
     milestone: "M4",
   },
   {
-    id: "layers",
-    label: "Layers",
-    purpose: "Set model top and layer bottoms from rasters, constants or picks.",
-    dependsOn: ["grid"],
+    id: "time",
+    label: "Time",
+    purpose: "Stress periods: how long each lasts and how many steps it is solved in.",
+    dependsOn: ["project"],
     milestone: "M4",
   },
   {
@@ -106,4 +106,12 @@ export const STEPS: Step[] = [
 export const STEP_BY_ID = new Map(STEPS.map((step) => [step.id, step]));
 
 /** Steps that have something behind them today. The rest say so plainly. */
-export const IMPLEMENTED: ReadonlySet<StepId> = new Set<StepId>(["project", "simulate", "results"]);
+export const IMPLEMENTED: ReadonlySet<StepId> = new Set<StepId>([
+  "project",
+  "grid",
+  "time",
+  "flow",
+  "transport",
+  "simulate",
+  "results",
+]);

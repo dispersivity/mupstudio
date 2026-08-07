@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
 import { ViewportHost } from "@/viewport-host/ViewportHost";
 import { fetchDatasetListing } from "@/net/viewportClient";
+import { projects } from "@/net/projectClient";
 import type { DatasetListing } from "@/results/DatasetPicker";
 import { ProjectStep, type ActiveProject } from "@/pages/ProjectStep";
+import { GridStep } from "@/pages/GridStep";
+import { TimeStep } from "@/pages/TimeStep";
+import { FlowStep } from "@/pages/FlowStep";
+import { TransportStep } from "@/pages/TransportStep";
 import { SimulateStep } from "@/pages/SimulateStep";
 import { StepPlaceholder } from "./StepPlaceholder";
 import { WorkflowRail } from "./WorkflowRail";
@@ -46,10 +51,23 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
       .catch(() => setListing(null));
   }, []);
 
+  const open = project !== null;
   const statuses: Partial<Record<StepId, StepStatus>> = {
-    project: project ? "complete" : "empty",
-    simulate: project ? "partial" : "locked",
+    project: open ? "complete" : "empty",
+    grid: open ? "complete" : "locked",
+    time: open ? "complete" : "locked",
+    flow: open ? (project.detail.boundaries.length > 0 ? "complete" : "partial") : "locked",
+    transport: open ? "complete" : "locked",
+    simulate: open ? "partial" : "locked",
     results: "complete",
+  };
+
+  // The Project step's summary is stale after an edit elsewhere, so it is
+  // refetched rather than left showing the old grid or period count.
+  const refreshProject = async () => {
+    if (!project) return;
+    const detail = await projects.detail(project.summary.path).catch(() => null);
+    if (detail) setProject({ ...project, detail });
   };
 
   return (
@@ -84,6 +102,30 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
               />
             ) : active === "project" ? (
               <ProjectStep active={project} onOpen={setProject} />
+            ) : active === "grid" ? (
+              <GridStep
+                path={project?.summary.path ?? null}
+                onGoToProject={() => setActive("project")}
+                onSaved={refreshProject}
+              />
+            ) : active === "time" ? (
+              <TimeStep
+                path={project?.summary.path ?? null}
+                onGoToProject={() => setActive("project")}
+                onSaved={refreshProject}
+              />
+            ) : active === "flow" ? (
+              <FlowStep
+                path={project?.summary.path ?? null}
+                onGoToProject={() => setActive("project")}
+                onSaved={refreshProject}
+              />
+            ) : active === "transport" ? (
+              <TransportStep
+                path={project?.summary.path ?? null}
+                onGoToProject={() => setActive("project")}
+                onSaved={refreshProject}
+              />
             ) : active === "simulate" ? (
               <SimulateStep
                 project={project}

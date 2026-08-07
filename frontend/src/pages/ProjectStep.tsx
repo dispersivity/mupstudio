@@ -154,10 +154,6 @@ function NewProjectForm({
 }) {
   const [name, setName] = useState("column");
   const [engine, setEngine] = useState("mf6rtm");
-  const [cells, setCells] = useState(50);
-  const [length, setLength] = useState(0.5);
-  const [perlen, setPerlen] = useState(1);
-  const [nstp, setNstp] = useState(10);
   const [parent, setParent] = useState("");
 
   const submit = async (event: React.FormEvent) => {
@@ -167,10 +163,6 @@ function NewProjectForm({
       const { project, detail } = await projects.create({
         name,
         engine,
-        cells,
-        length,
-        perlen,
-        nstp,
         parent: parent.trim() || undefined,
       });
       onCreated({ summary: project, detail });
@@ -208,19 +200,13 @@ function NewProjectForm({
             <option value="pht3d">PHT3D (writing not implemented)</option>
           </select>
         </Field>
-        <Field label="Cells along the column">
-          <NumberField value={cells} onChange={setCells} min={1} step={1} />
-        </Field>
-        <Field label="Column length">
-          <NumberField value={length} onChange={setLength} min={0} step={0.1} />
-        </Field>
-        <Field label="Stress period length">
-          <NumberField value={perlen} onChange={setPerlen} min={0} step={0.1} />
-        </Field>
-        <Field label="Time steps">
-          <NumberField value={nstp} onChange={setNstp} min={1} step={1} />
-        </Field>
       </div>
+
+      <p className="text-[10px] leading-relaxed text-zinc-600">
+        A new project starts as a 50-cell column half a metre long, with inflow at one end and
+        outflow at the other, so it runs immediately. Change the discretisation in Grid, the stress
+        periods in Time, and the boundaries in Flow.
+      </p>
 
       <Field label="Create in (blank uses the server's working directory)">
         <input
@@ -279,31 +265,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1 block text-[10px] text-zinc-500">{label}</span>
       {children}
     </label>
-  );
-}
-
-function NumberField({
-  value,
-  onChange,
-  min,
-  step,
-}: {
-  value: number;
-  onChange: (value: number) => void;
-  min: number;
-  step: number;
-}) {
-  return (
-    <input
-      type="number"
-      value={value}
-      min={min}
-      step={step}
-      onChange={(event) => {
-        const parsed = Number(event.target.value);
-        if (Number.isFinite(parsed)) onChange(parsed);
-      }}
-      className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs tabular-nums text-zinc-100"
-    />
   );
 }

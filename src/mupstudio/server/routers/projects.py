@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from mupstudio.compile.compiler import CompileError, compile_project
 from mupstudio.engines.mf6rtm.writer import write_mf6
@@ -159,6 +159,51 @@ def describe(project: Project) -> dict[str, Any]:
             "dispersion": project.transport.dispersion.enabled,
             "dualPorosity": project.transport.dual_porosity is not None,
         },
+    }
+
+
+@router.get("/projects/document")
+def read_document(path: str) -> dict[str, Any]:
+    """The whole project, as the editors read and write it.
+
+    One document rather than per-section endpoints because validation is
+    holistic: a boundary's cell indices are only checkable against the grid, and
+    a per-period series only against the stress periods.
+    """
+    return {"document": _load(path).model_dump(mode="json")}
+
+
+@router.put("/projects/document")
+def write_document(path: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Validate an edited project and save it if it holds up.
+
+    An invalid edit is reported field by field and never reaches disk, so a
+    project on disk is always one that loads.
+    """
+    directory = Path(path)
+    if not projectstore.is_project(directory):
+        raise HTTPException(status_code=404, detail=f"{path} is not a project")
+
+    try:
+        project = Project.model_validate(body.get("document", body))
+    except ValidationError as error:
+        return {
+            "ok": False,
+            "problems": [
+                {
+                    "field": ".".join(str(part) for part in item["loc"]),
+                    "message": item["msg"],
+                }
+                for item in error.errors()
+            ],
+        }
+
+    projectstore.save(directory, project)
+    return {
+        "ok": True,
+        "problems": [],
+        "document": project.model_dump(mode="json"),
+        "detail": describe(project),
     }
 
 
