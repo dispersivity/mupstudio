@@ -157,3 +157,42 @@ describe("packDisv", () => {
     expect(mesh.triangleCount).toBe(cells * (2 * 2 + 4 * 2));
   });
 });
+
+describe("packDisv edge indices", () => {
+  it("emits three line pairs per cell edge", () => {
+    const mesh = packDisv(twoSquares());
+
+    // 8 cell edges x 3 lines x 2 endpoints
+    expect(mesh.wallEdgeIndices.length).toBe(8 * 6);
+  });
+
+  it("indexes only wall vertices it wrote", () => {
+    const mesh = packDisv(mixedShapes());
+    const wallVertexCount = mesh.wallVertices.length / FLOATS_PER_VERTEX;
+
+    expect(Math.max(...mesh.wallEdgeIndices)).toBeLessThan(wallVertexCount);
+  });
+
+  it("outlines each quad along its top, bottom and one vertical", () => {
+    const mesh = packDisv(twoSquares());
+    const lines: [number, number][] = [];
+    for (let i = 0; i < 6; i += 2) {
+      lines.push([mesh.wallEdgeIndices[i], mesh.wallEdgeIndices[i + 1]]);
+    }
+
+    // Quad corners are [topFrom, topTo, botTo, botFrom].
+    expect(lines).toEqual([
+      [0, 1], // top
+      [3, 2], // bottom
+      [0, 3], // vertical
+    ]);
+  });
+
+  it("never draws a line between a point and itself", () => {
+    const mesh = packDisv(mixedShapes());
+
+    for (let i = 0; i < mesh.wallEdgeIndices.length; i += 2) {
+      expect(mesh.wallEdgeIndices[i]).not.toBe(mesh.wallEdgeIndices[i + 1]);
+    }
+  });
+});

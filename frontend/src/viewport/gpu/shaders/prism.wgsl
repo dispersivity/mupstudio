@@ -101,3 +101,13 @@ fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
   let colour = textureSampleLevel(colormap, colormapSampler, vec2<f32>(t, 0.5), 0.0);
   return vec4<f32>(colour.rgb * input.shade, 1.0);
 }
+
+// Cell outlines. Shares vertexMain, so edges sit exactly on the extruded faces
+// whatever the axis scaling is, and needs no geometry of its own.
+@fragment
+fn fragmentEdge(input: VertexOut) -> @location(0) vec4<f32> {
+  if (input.value == frame.gridInfo.z) {
+    discard;
+  }
+  return vec4<f32>(0.06, 0.07, 0.09, 1.0);
+}

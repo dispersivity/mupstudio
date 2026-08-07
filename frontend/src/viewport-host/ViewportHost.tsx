@@ -65,6 +65,7 @@ export function ViewportHost({
     verticalExaggeration: 1,
     xExaggeration: 1,
     yExaggeration: 1,
+    showEdges: false,
   });
   const [camera, setCamera] = useState<CameraView | null>(null);
 
@@ -175,6 +176,7 @@ export function ViewportHost({
     viewport.setColormap(view.colormap);
     viewport.setRange(view.vmin, view.vmax);
     viewport.setLogScale(view.logScale);
+    viewport.setShowEdges(view.showEdges);
 
     viewport.setAxisScale(view.xExaggeration, view.yExaggeration, view.verticalExaggeration);
   }, [view, phase.status]);

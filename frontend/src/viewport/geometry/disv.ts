@@ -32,6 +32,14 @@ export interface PackedMesh {
   capIndices: Uint32Array<ArrayBuffer>;
   wallVertices: Float32Array<ArrayBuffer>;
   wallIndices: Uint32Array<ArrayBuffer>;
+  /**
+   * Line pairs over the wall vertices outlining each cell.
+   *
+   * Drawn as lines rather than as a separate mesh so edges reuse the wall
+   * vertex buffer and the same extrusion shader, which keeps them correct at
+   * any exaggeration for no extra upload.
+   */
+  wallEdgeIndices: Uint32Array<ArrayBuffer>;
   /** Cells per layer — the stride into the elevation and scalar buffers. */
   ncpl: number;
   triangleCount: number;
@@ -76,11 +84,16 @@ export function packDisv(footprint: Footprint): PackedMesh {
   // Walls: one quad per edge, four vertices each, no sharing between edges.
   const wallVertices = new Float32Array(corners * 4 * FLOATS_PER_VERTEX);
   const wallIndices = new Uint32Array(corners * 6);
+  // Three edges per quad: its top, its bottom, and one vertical. The other
+  // vertical belongs to the neighbouring edge, so outlines close up without
+  // drawing anything twice.
+  const wallEdgeIndices = new Uint32Array(corners * 6);
 
   let capVertexCursor = 0;
   let capIndexCursor = 0;
   let wallVertexCursor = 0;
   let wallIndexCursor = 0;
+  let wallEdgeCursor = 0;
 
   const writeVertex = (
     target: Float32Array,
@@ -142,6 +155,14 @@ export function packDisv(footprint: Footprint): PackedMesh {
       wallIndices[wallIndexCursor++] = base;
       wallIndices[wallIndexCursor++] = base + 2;
       wallIndices[wallIndexCursor++] = base + 3;
+
+      // Quad corners are [topFrom, topTo, botTo, botFrom].
+      wallEdgeIndices[wallEdgeCursor++] = base; // top edge
+      wallEdgeIndices[wallEdgeCursor++] = base + 1;
+      wallEdgeIndices[wallEdgeCursor++] = base + 3; // bottom edge
+      wallEdgeIndices[wallEdgeCursor++] = base + 2;
+      wallEdgeIndices[wallEdgeCursor++] = base; // vertical at the start corner
+      wallEdgeIndices[wallEdgeCursor++] = base + 3;
     }
   }
 
@@ -150,6 +171,7 @@ export function packDisv(footprint: Footprint): PackedMesh {
     capIndices,
     wallVertices,
     wallIndices,
+    wallEdgeIndices,
     ncpl,
     triangleCount: fanTriangles * 2 + corners * 2,
   };

@@ -18,6 +18,8 @@ export interface ViewSettings {
    */
   xExaggeration: number;
   yExaggeration: number;
+  /** Outline cells, which is how you check a grid looks like you intended. */
+  showEdges: boolean;
 }
 
 /**
@@ -161,6 +163,15 @@ export function ViewportInspector({
       </Section>
 
       <Section title="Geometry">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={settings.showEdges}
+            onChange={(event) => onChange({ showEdges: event.target.checked })}
+          />
+          <span>Cell edges</span>
+        </label>
+
         {catalog.thinAxis && (
           <p className="rounded bg-zinc-800/60 px-2 py-1.5 text-[10px] leading-relaxed text-zinc-400">
             This grid is one cell across <span className="text-zinc-200">{catalog.thinAxis}</span>.

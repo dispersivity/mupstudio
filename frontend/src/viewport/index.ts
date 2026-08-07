@@ -30,6 +30,8 @@ interface GpuGeometry {
   wallVertexBuffer: GPUBuffer;
   wallIndexBuffer: GPUBuffer;
   wallIndexCount: number;
+  edgeIndexBuffer: GPUBuffer;
+  edgeIndexCount: number;
   topBuffer: GPUBuffer;
   botBuffer: GPUBuffer;
   nlay: number;
@@ -112,6 +114,35 @@ export async function createViewport(
     depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: "less" },
   });
 
+  const edgePipeline = device.createRenderPipeline({
+    label: "cell edges",
+    layout: device.createPipelineLayout({ bindGroupLayouts: [frameLayout, scalarLayout] }),
+    vertex: {
+      module,
+      entryPoint: "vertexMain",
+      buffers: [
+        {
+          arrayStride: FLOATS_PER_VERTEX * 4,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: "float32x2" },
+            { shaderLocation: 1, offset: 8, format: "float32" },
+            { shaderLocation: 2, offset: 12, format: "float32" },
+          ],
+        },
+      ],
+    },
+    fragment: { module, entryPoint: "fragmentEdge", targets: [{ format }] },
+    primitive: { topology: "line-list" },
+    depthStencil: {
+      format: DEPTH_FORMAT,
+      depthWriteEnabled: false,
+      // Edges sit on the faces they outline, so a plain less test would make
+      // them fight the surface. Comparing less-or-equal with a small bias in
+      // the pass order keeps them visible without a depth offset.
+      depthCompare: "less-equal",
+    },
+  });
+
   const uniformBuffer = device.createBuffer({
     label: "frame uniforms",
     size: FRAME_UNIFORM_FLOATS * 4,
@@ -138,6 +169,7 @@ export async function createViewport(
   let gridBounds: GridGeometry["bounds"] | null = null;
   let range: [number, number] = [0, 1];
   let logScale = false;
+  let showEdges = options.showEdges ?? false;
   const nodata = options.nodata ?? -1e30;
 
   const cameraListeners = new Set<(view: CameraView) => void>();
@@ -205,6 +237,7 @@ export async function createViewport(
       geometry.capIndexBuffer,
       geometry.wallVertexBuffer,
       geometry.wallIndexBuffer,
+      geometry.edgeIndexBuffer,
       geometry.topBuffer,
       geometry.botBuffer,
     ]) {
@@ -258,6 +291,8 @@ export async function createViewport(
       wallVertexBuffer: vertexBuffer("wall vertices", packed.wallVertices),
       wallIndexBuffer: indexBuffer("wall indices", packed.wallIndices),
       wallIndexCount: packed.wallIndices.length,
+      edgeIndexBuffer: indexBuffer("edge indices", packed.wallEdgeIndices),
+      edgeIndexCount: packed.wallEdgeIndices.length,
       topBuffer: storageBuffer("top elevations", input.top),
       botBuffer: storageBuffer("bottom elevations", input.botm),
       nlay: input.nlay,
@@ -352,6 +387,16 @@ export async function createViewport(
     pass.setIndexBuffer(geometry.wallIndexBuffer, "uint32");
     pass.drawIndexed(geometry.wallIndexCount, geometry.nlay);
 
+    if (showEdges) {
+      // Same vertex buffer, drawn as lines: no extra geometry, and the outlines
+      // follow the faces exactly under any exaggeration.
+      pass.setPipeline(edgePipeline);
+      pass.setBindGroup(0, frameBindGroup);
+      pass.setBindGroup(1, scalars.bindGroups[timestep]);
+      pass.setIndexBuffer(geometry.edgeIndexBuffer, "uint32");
+      pass.drawIndexed(geometry.edgeIndexCount, geometry.nlay);
+    }
+
     pass.end();
     device.queue.submit([encoder.finish()]);
 
@@ -401,6 +446,10 @@ export async function createViewport(
     },
     setLogScale(enabled) {
       logScale = enabled;
+      dirty = true;
+    },
+    setShowEdges(enabled) {
+      showEdges = enabled;
       dirty = true;
     },
     setVerticalExaggeration(factor) {

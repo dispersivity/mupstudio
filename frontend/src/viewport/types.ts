@@ -28,6 +28,7 @@ export interface ScalarSet {
 }
 
 export interface ViewportOptions {
+  showEdges?: boolean;
   /** Value marking an inactive cell; those fragments are discarded. */
   nodata?: number;
   verticalExaggeration?: number;
@@ -58,6 +59,8 @@ export interface Viewport {
   setColormap(name: ColormapName): void;
   setRange(min: number, max: number): void;
   setLogScale(enabled: boolean): void;
+  /** Draw cell outlines, so grid structure is visible. */
+  setShowEdges(enabled: boolean): void;
   setVerticalExaggeration(factor: number): void;
   /**
    * Scale the model along each world axis.
