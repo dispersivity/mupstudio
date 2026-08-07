@@ -93,6 +93,7 @@ class TestRoundTrip:
 
         assert written == [
             ".gitignore",
+            "chemistry.toml",
             "flow.toml",
             "grid.toml",
             "project.toml",
@@ -115,6 +116,27 @@ class TestRoundTrip:
         loaded = projectstore.load(tmp_path / "p.mup")
 
         assert loaded.model_dump() == original.model_dump()
+
+    def test_chemistry_survives_the_round_trip(self, tmp_path: Path) -> None:
+        """Chemistry is nested deeper than anything else in the schema.
+
+        Dicts keyed by species name, lists of assemblages, and compositions that
+        name them: the shapes TOML is least natural at. A project whose
+        chemistry did not come back would still open, and the loss would only
+        show up as a model that ran with the wrong water in it.
+        """
+        from mupstudio.schema.templates import starter_chemistry
+
+        original = Project.model_validate(
+            {**simple().model_dump(), "chemistry": starter_chemistry().model_dump()}
+        )
+        projectstore.save(tmp_path / "p.mup", original, touch_modified=False)
+
+        loaded = projectstore.load(tmp_path / "p.mup")
+
+        assert (tmp_path / "p.mup" / "chemistry.toml").exists()
+        assert loaded.chemistry.model_dump() == original.chemistry.model_dump()
+        assert loaded.chemistry.solutions[0].concentrations["C(+4)"] == 1.23e-4
 
     @pytest.mark.parametrize("build", [simple, elaborate], ids=["simple", "elaborate"])
     def test_saving_twice_writes_identical_bytes(self, tmp_path: Path, build) -> None:

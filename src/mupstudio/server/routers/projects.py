@@ -8,6 +8,7 @@ read the input MODFLOW will read before believing any of this.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -347,7 +348,12 @@ async def run_project(path: str) -> dict[str, Any]:
     from mupstudio.settings import Settings
 
     project = load_project(path)
-    written = write_project(path)
+
+    # Off the event loop: writing a reactive model runs PHREEQC through a
+    # subprocess and waits for it, which for a large grid is minutes. Doing that
+    # inline would freeze every other request, including the websocket carrying
+    # progress for runs already going.
+    written = await asyncio.to_thread(write_project, path)
     workdir = Path(written["workdir"])
 
     settings = Settings.load()

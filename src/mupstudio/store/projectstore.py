@@ -10,6 +10,7 @@ a script, and open the result in the app.
       grid.toml
       flow.toml
       transport.toml
+      chemistry.toml
       run.toml
 """
 
@@ -33,6 +34,7 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     "grid.toml": ("grid",),
     "flow.toml": ("flow",),
     "transport.toml": ("transport",),
+    "chemistry.toml": ("chemistry",),
     "run.toml": ("run",),
 }
 

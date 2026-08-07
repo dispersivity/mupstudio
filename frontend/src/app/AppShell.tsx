@@ -7,6 +7,7 @@ import { ProjectStep, type ActiveProject } from "@/pages/ProjectStep";
 import { GridStep } from "@/pages/GridStep";
 import { TimeStep } from "@/pages/TimeStep";
 import { FlowStep } from "@/pages/FlowStep";
+import { ChemistryStep } from "@/pages/ChemistryStep";
 import { TransportStep } from "@/pages/TransportStep";
 import { SimulateStep } from "@/pages/SimulateStep";
 import { StepPlaceholder } from "./StepPlaceholder";
@@ -122,6 +123,12 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
               />
             ) : active === "transport" ? (
               <TransportStep
+                path={project?.summary.path ?? null}
+                onGoToProject={() => setActive("project")}
+                onSaved={refreshProject}
+              />
+            ) : active === "chemistry" ? (
+              <ChemistryStep
                 path={project?.summary.path ?? null}
                 onGoToProject={() => setActive("project")}
                 onSaved={refreshProject}

@@ -112,6 +112,7 @@ export const IMPLEMENTED: ReadonlySet<StepId> = new Set<StepId>([
   "time",
   "flow",
   "transport",
+  "chemistry",
   "simulate",
   "results",
 ]);

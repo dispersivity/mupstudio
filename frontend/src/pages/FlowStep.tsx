@@ -8,6 +8,7 @@ import {
   Select,
   TextInput,
 } from "./editor/controls";
+import { gridLimits, type Limits } from "./editor/grid";
 import { useProjectDocument, type ProjectDocument } from "./editor/useProjectDocument";
 
 const PROPERTIES: { key: string; label: string; hint: string }[] = [
@@ -271,20 +272,6 @@ export function FlowStep({
       </Section>
     </EditorShell>
   );
-}
-
-interface Limits {
-  layers: number;
-  rows: number;
-  columns: number;
-}
-
-function gridLimits(grid: ProjectDocument): Limits {
-  return {
-    layers: (grid.layers as ProjectDocument[]).reduce((total, layer) => total + layer.sublayers, 0),
-    rows: grid.rows.widths?.length ?? grid.rows.ncells,
-    columns: grid.columns.widths?.length ?? grid.columns.ncells,
-  };
 }
 
 function summarise(item: ProjectDocument, nper: number): string {
