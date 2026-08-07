@@ -68,6 +68,46 @@ class ConstantHeadPackage(BaseModel):
     )
 
 
+class DrainPackage(BaseModel):
+    """DRN. Water leaves where head exceeds the drain elevation, never enters.
+
+    Outflow only, so it carries no inflow chemistry.
+    """
+
+    kind: Literal["drn"] = "drn"
+    id: Id
+    cells: CellSelection
+    elevation: TimeSeries
+    conductance: TimeSeries
+
+
+class RiverPackage(BaseModel):
+    """RIV. Exchanges with a surface water body through a streambed."""
+
+    kind: Literal["riv"] = "riv"
+    id: Id
+    cells: CellSelection
+    stage: TimeSeries
+    conductance: TimeSeries
+    bottom: TimeSeries = Field(description="Streambed bottom elevation")
+    concentration: TimeSeries | None = Field(
+        default=None, description="Solute concentration of water entering from the river"
+    )
+
+
+class GeneralHeadPackage(BaseModel):
+    """GHB. A head boundary some distance away, reached through a conductance."""
+
+    kind: Literal["ghb"] = "ghb"
+    id: Id
+    cells: CellSelection
+    head: TimeSeries
+    conductance: TimeSeries
+    concentration: TimeSeries | None = Field(
+        default=None, description="Solute concentration of water entering here"
+    )
+
+
 class RechargePackage(BaseModel):
     """Areally distributed inflow at the top."""
 
@@ -83,9 +123,26 @@ class RechargePackage(BaseModel):
 
 
 BoundaryPackage = Annotated[
-    WellPackage | ConstantHeadPackage | RechargePackage,
+    WellPackage
+    | ConstantHeadPackage
+    | RechargePackage
+    | DrainPackage
+    | RiverPackage
+    | GeneralHeadPackage,
     Field(discriminator="kind"),
 ]
+
+# The MODFLOW package name for each kind. Used wherever a boundary is named to
+# a user: modellers think in package names, not in descriptions of them.
+PACKAGE_NAMES: dict[str, str] = {
+    "well": "WEL",
+    "chd": "CHD",
+    "rch": "RCH",
+    "recharge": "RCH",
+    "drn": "DRN",
+    "riv": "RIV",
+    "ghb": "GHB",
+}
 
 
 class SolverOptions(BaseModel):
@@ -98,8 +155,9 @@ class SolverOptions(BaseModel):
     complexity: Literal["simple", "moderate", "complex"] = "moderate"
 
 
-# Boundary kinds that introduce water, and so can introduce solute.
-SOLUTE_CARRYING = frozenset({"well", "chd", "recharge"})
+# Boundary kinds that can introduce water, and so can introduce solute. DRN is
+# absent because a drain only removes water.
+SOLUTE_CARRYING = frozenset({"well", "chd", "recharge", "riv", "ghb"})
 
 
 class FlowModel(BaseModel):

@@ -70,6 +70,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mupstudio"]
+# Bundled PHREEQC databases (USGS public domain) so chemistry works on a fresh
+# install without hunting for files.
+artifacts = ["src/mupstudio/chemdb/assets/*.dat"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 path = "hatch_build.py"

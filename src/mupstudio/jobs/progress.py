@@ -38,9 +38,15 @@ _PHASES: dict[str, Phase] = {
 
 @dataclass(frozen=True)
 class ProgressEvent:
-    """One thing worth telling the user about a running model."""
+    """One thing worth telling the user about a running model.
 
-    kind: Literal["step", "finished", "failed", "warning"]
+    A ``log`` event carries a raw output line. Those are forwarded as well as
+    the parsed steps, because when a model misbehaves the engine's own words
+    are what diagnose it, and waiting for the run to end to see them is no
+    use while it is still going.
+    """
+
+    kind: Literal["step", "finished", "failed", "warning", "log"]
     kper: int | None = None
     kstp: int | None = None
     phase: Phase = "other"

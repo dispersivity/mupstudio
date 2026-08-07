@@ -172,6 +172,9 @@ def _write_boundaries(gwf, model: CompiledModel, warnings: list[str]) -> None:  
     builders = {
         "well": flopy.mf6.ModflowGwfwel,
         "chd": flopy.mf6.ModflowGwfchd,
+        "drn": flopy.mf6.ModflowGwfdrn,
+        "riv": flopy.mf6.ModflowGwfriv,
+        "ghb": flopy.mf6.ModflowGwfghb,
     }
 
     for boundary in model.boundaries:

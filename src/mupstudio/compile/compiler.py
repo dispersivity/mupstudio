@@ -266,7 +266,15 @@ def _compile_boundary(package, project: Project, grid: CompiledGrid) -> Compiled
         # Recharge is areal: one record per top-layer cell, or per named cell.
         cells = cells or [(0, row, col) for row in range(grid.nrow) for col in range(grid.ncol)]
 
-    series = getattr(package, "rate" if package.kind in {"well", "recharge"} else "head")
+    # The values MODFLOW expects per record, in the order its input defines.
+    value_fields = {
+        "well": ("rate",),
+        "chd": ("head",),
+        "recharge": ("rate",),
+        "drn": ("elevation", "conductance"),
+        "riv": ("stage", "conductance", "bottom"),
+        "ghb": ("head", "conductance"),
+    }[package.kind]
     concentration = getattr(package, "concentration", None)
 
     # Solute-carrying boundaries carry the inflow concentration as an auxiliary
@@ -276,12 +284,12 @@ def _compile_boundary(package, project: Project, grid: CompiledGrid) -> Compiled
 
     spd: dict[int, list[tuple[Any, ...]]] = {}
     for period in range(nper):
-        value = _series_value(series, period)
+        values = tuple(_series_value(getattr(package, field), period) for field in value_fields)
         if carries_solute:
             aux = _series_value(concentration, period) if concentration is not None else 0.0
-            spd[period] = [(cell, value, aux) for cell in cells]
+            spd[period] = [(cell, *values, aux) for cell in cells]
         else:
-            spd[period] = [(cell, value) for cell in cells]
+            spd[period] = [(cell, *values) for cell in cells]
 
     return CompiledBoundary(
         id=package.id, kind=package.kind, spd=spd, carries_solute=carries_solute

@@ -134,8 +134,9 @@ export function watchRun(
   runId: string,
   handlers: {
     onState?: (state: RunState) => void;
+    /** Every engine output line arrives as kind "log"; parsed events as the rest. */
     onProgress?: (progress: {
-      kind: string;
+      kind: "step" | "finished" | "failed" | "warning" | "log";
       kper: number | null;
       kstp: number | null;
       phase: string;

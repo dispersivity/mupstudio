@@ -111,13 +111,17 @@ class LocalRunner(Runner):
         )
         self._processes[run_id] = process
         self.registry.update(run_id, state="running", pid=process.pid)
-        self._publish(run_id, ProgressEvent(kind="step", message=f"started {stage.name}"))
+        self._publish(run_id, ProgressEvent(kind="log", message=f"--- {stage.name} started"))
 
         assert process.stdout is not None
         async for raw in process.stdout:
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
             sink.write(line + "\n")
             sink.flush()
+
+            # Every line goes out as-is so the UI can show live output, and
+            # the ones that mean something also go out parsed.
+            self._publish(run_id, ProgressEvent(kind="log", message=line))
 
             event = parse_line(line)
             if event is not None:

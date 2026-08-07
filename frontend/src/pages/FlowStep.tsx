@@ -18,11 +18,47 @@ const PROPERTIES: { key: string; label: string; hint: string }[] = [
   { key: "starting_head", label: "Starting head", hint: "The initial condition for flow" },
 ];
 
-const BOUNDARY_KINDS = [
-  { value: "well", label: "Well (rate)" },
-  { value: "chd", label: "Constant head" },
-  { value: "recharge", label: "Recharge" },
-];
+/**
+ * Boundary packages, named the way MODFLOW names them.
+ *
+ * The acronym is the primary label because that is what a modeller reads in a
+ * name file and a listing file; the description is the secondary hint.
+ */
+const PACKAGES = [
+  { kind: "well", name: "WEL", description: "Injection or extraction at cells" },
+  { kind: "chd", name: "CHD", description: "Head held constant" },
+  { kind: "recharge", name: "RCH", description: "Areal inflow at the top" },
+  { kind: "drn", name: "DRN", description: "Drains water above an elevation" },
+  { kind: "riv", name: "RIV", description: "Exchange through a streambed" },
+  { kind: "ghb", name: "GHB", description: "Head boundary through a conductance" },
+] as const;
+
+const PACKAGE_NAME: Record<string, string> = Object.fromEntries(
+  PACKAGES.map((item) => [item.kind, item.name]),
+);
+
+/** The values each package holds, in the order MODFLOW reads them. */
+const PACKAGE_FIELDS: Record<string, { field: string; label: string; hint: string }[]> = {
+  well: [{ field: "rate", label: "Rate", hint: "Positive injects, negative extracts." }],
+  chd: [{ field: "head", label: "Head", hint: "The head this boundary holds." }],
+  recharge: [{ field: "rate", label: "Rate", hint: "Per unit area." }],
+  drn: [
+    { field: "elevation", label: "Drain elevation", hint: "Water leaves above this." },
+    { field: "conductance", label: "Conductance", hint: "Of the drain material." },
+  ],
+  riv: [
+    { field: "stage", label: "River stage", hint: "Water surface elevation." },
+    { field: "conductance", label: "Conductance", hint: "Of the streambed." },
+    { field: "bottom", label: "Streambed bottom", hint: "Below the stage." },
+  ],
+  ghb: [
+    { field: "head", label: "Boundary head", hint: "The head some distance away." },
+    { field: "conductance", label: "Conductance", hint: "Of the path to it." },
+  ],
+};
+
+/** Packages that can bring water in, and so can bring solute. DRN only removes. */
+const SOLUTE_CARRYING = new Set(["well", "chd", "recharge", "riv", "ghb"]);
 
 /**
  * Aquifer properties and boundary conditions.
@@ -156,8 +192,10 @@ export function FlowStep({
                   onClick={() => setExpanded(expanded === item.id ? null : item.id)}
                   className="flex-1 text-left"
                 >
-                  <span className="text-xs text-zinc-200">{item.id}</span>
-                  <span className="ml-2 text-[10px] text-zinc-500">{item.kind}</span>
+                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
+                    {PACKAGE_NAME[item.kind] ?? item.kind.toUpperCase()}
+                  </span>
+                  <span className="ml-2 text-xs text-zinc-200">{item.id}</span>
                   <span className="ml-2 text-[10px] text-zinc-600">{summarise(item, nper)}</span>
                 </button>
                 <button
@@ -183,21 +221,22 @@ export function FlowStep({
           ))}
         </ul>
 
-        <div className="mt-3 flex gap-2">
-          {BOUNDARY_KINDS.map((kind) => (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {PACKAGES.map((item) => (
             <button
-              key={kind.value}
+              key={item.kind}
               type="button"
+              title={item.description}
               onClick={() =>
                 editor.edit((draft) => {
-                  const item = newBoundary(kind.value, draft, limits);
-                  draft.flow.packages.push(item);
-                  setExpanded(item.id);
+                  const created = newBoundary(item.kind, draft, limits);
+                  draft.flow.packages.push(created);
+                  setExpanded(created.id);
                 })
               }
-              className="rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-300 hover:border-zinc-600"
+              className="rounded border border-zinc-700 px-2 py-1 font-mono text-[10px] text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"
             >
-              Add {kind.label.toLowerCase()}
+              + {item.name}
             </button>
           ))}
         </div>
@@ -249,13 +288,14 @@ function gridLimits(grid: ProjectDocument): Limits {
 }
 
 function summarise(item: ProjectDocument, nper: number): string {
-  const field = item.kind === "chd" ? "head" : "rate";
-  const series = item[field];
+  const first = PACKAGE_FIELDS[item.kind]?.[0];
+  if (!first) return "";
+  const series = item[first.field];
   const value =
     series?.kind === "constant"
       ? String(Number(series.value.toPrecision(4)))
       : `${series?.values?.length ?? 0}/${nper} periods`;
-  return `${field} ${value}`;
+  return `${first.field} ${value}`;
 }
 
 function newBoundary(kind: string, document: ProjectDocument, limits: Limits): ProjectDocument {
@@ -266,20 +306,35 @@ function newBoundary(kind: string, document: ProjectDocument, limits: Limits): P
 
   const cells = { kind: "cells", layers: [1], rows: [1], columns: [1] };
 
-  if (kind === "chd") {
-    // A constant head is usually the outflow end of a column.
-    return {
-      kind,
-      id,
-      cells: { ...cells, columns: [limits.columns] },
+  // Head-type boundaries usually sit at the far end of a column, so that is
+  // where a new one starts rather than on top of the inflow.
+  const atFarEnd = { ...cells, columns: [limits.columns] };
+
+  const defaults: Record<string, ProjectDocument> = {
+    well: { cells, rate: { kind: "constant", value: 0 } },
+    chd: { cells: atFarEnd, head: { kind: "constant", value: 0 } },
+    recharge: { cells: null, rate: { kind: "constant", value: 1e-4 } },
+    drn: {
+      cells: atFarEnd,
+      elevation: { kind: "constant", value: 0 },
+      conductance: { kind: "constant", value: 1 },
+    },
+    riv: {
+      cells: atFarEnd,
+      stage: { kind: "constant", value: 0 },
+      conductance: { kind: "constant", value: 1 },
+      bottom: { kind: "constant", value: -1 },
+    },
+    ghb: {
+      cells: atFarEnd,
       head: { kind: "constant", value: 0 },
-      concentration: null,
-    };
-  }
-  if (kind === "recharge") {
-    return { kind, id, rate: { kind: "constant", value: 1e-4 }, concentration: null, cells: null };
-  }
-  return { kind, id, cells, rate: { kind: "constant", value: 0 }, concentration: null };
+      conductance: { kind: "constant", value: 1 },
+    },
+  };
+
+  const base = { kind, id, ...defaults[kind] };
+  // A drain only removes water, so it never carries an inflow concentration.
+  return SOLUTE_CARRYING.has(kind) ? { ...base, concentration: null } : base;
 }
 
 function BoundaryEditor({
@@ -293,7 +348,7 @@ function BoundaryEditor({
   limits: Limits;
   onEdit: (change: (item: ProjectDocument, document: ProjectDocument) => void) => void;
 }) {
-  const valueField = item.kind === "chd" ? "head" : "rate";
+  const fields = PACKAGE_FIELDS[item.kind] ?? [];
 
   return (
     <div className="space-y-4 border-t border-zinc-800 px-3 py-3">
@@ -307,28 +362,29 @@ function BoundaryEditor({
         </Labelled>
       </div>
 
-      <SeriesEditor
-        label={valueField === "head" ? "Head" : "Rate"}
-        hint={
-          valueField === "rate"
-            ? "Positive injects, negative extracts."
-            : "The head this boundary holds."
-        }
-        series={item[valueField]}
-        nper={nper}
-        onEdit={(change) => onEdit((draft) => change(draft[valueField]))}
-        onReplace={(series) => onEdit((draft) => void (draft[valueField] = series))}
-      />
+      {fields.map((field) => (
+        <SeriesEditor
+          key={field.field}
+          label={field.label}
+          hint={field.hint}
+          series={item[field.field]}
+          nper={nper}
+          onEdit={(change) => onEdit((draft) => change(draft[field.field]))}
+          onReplace={(series) => onEdit((draft) => void (draft[field.field] = series))}
+        />
+      ))}
 
-      <SeriesEditor
-        label="Inflow concentration"
-        hint="What the water entering here carries. Zero unless set."
-        series={item.concentration}
-        nper={nper}
-        optional
-        onEdit={(change) => onEdit((draft) => change(draft.concentration))}
-        onReplace={(series) => onEdit((draft) => void (draft.concentration = series))}
-      />
+      {SOLUTE_CARRYING.has(item.kind) && (
+        <SeriesEditor
+          label="Inflow concentration"
+          hint="What the water entering here carries. Zero unless set."
+          series={item.concentration}
+          nper={nper}
+          optional
+          onEdit={(change) => onEdit((draft) => change(draft.concentration))}
+          onReplace={(series) => onEdit((draft) => void (draft.concentration = series))}
+        />
+      )}
 
       {item.cells !== null && item.cells !== undefined && (
         <div className="grid max-w-lg grid-cols-3 gap-3">
