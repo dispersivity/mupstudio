@@ -9,12 +9,15 @@ export interface ViewSettings {
   vmax: number;
   autoRange: boolean;
   logScale: boolean;
+  /** Scale on z. Kept as its own name because it is the one people reach for. */
   verticalExaggeration: number;
   /**
-   * Scale applied to a single-cell-wide axis. 1 leaves the model at true
-   * proportions; smaller values thin it so a 1D or 2D profile reads as one.
+   * Scale on x and y. Below 1 they squash, above 1 they stretch. A column
+   * discretised 1 m across for tidy geometry renders as a slab until the wide
+   * axis is squashed; a long thin reach reads better stretched the other way.
    */
-  thinAxisScale: number;
+  xExaggeration: number;
+  yExaggeration: number;
 }
 
 /**
@@ -158,36 +161,42 @@ export function ViewportInspector({
       </Section>
 
       <Section title="Geometry">
-        <Field label={`Vertical exaggeration ${settings.verticalExaggeration.toFixed(1)}x`}>
-          <input
-            type="range"
-            min={0.5}
-            max={20}
-            step={0.5}
-            value={settings.verticalExaggeration}
-            onChange={(event) => onChange({ verticalExaggeration: Number(event.target.value) })}
-            className="w-full accent-sky-400"
-            aria-label="Vertical exaggeration"
-          />
-        </Field>
-
         {catalog.thinAxis && (
-          <Field label={`Squash ${catalog.thinAxis} ${formatScale(settings.thinAxisScale)}`}>
-            <input
-              type="range"
-              min={-2}
-              max={0}
-              step={0.05}
-              value={Math.log10(settings.thinAxisScale)}
-              onChange={(event) => onChange({ thinAxisScale: 10 ** Number(event.target.value) })}
-              className="w-full accent-sky-400"
-              aria-label={`Squash ${catalog.thinAxis} axis`}
-            />
-            <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
-              This grid is one cell across {catalog.thinAxis}. Squashing that axis makes the profile
-              readable without changing any values; the model itself is unchanged.
-            </p>
-          </Field>
+          <p className="rounded bg-zinc-800/60 px-2 py-1.5 text-[10px] leading-relaxed text-zinc-400">
+            This grid is one cell across <span className="text-zinc-200">{catalog.thinAxis}</span>.
+            Squashing that axis makes the profile readable. Scaling changes only the picture, never
+            the model.
+          </p>
+        )}
+
+        <AxisSlider
+          axis="x"
+          value={settings.xExaggeration}
+          onChange={(value) => onChange({ xExaggeration: value })}
+        />
+        <AxisSlider
+          axis="y"
+          value={settings.yExaggeration}
+          onChange={(value) => onChange({ yExaggeration: value })}
+        />
+        <AxisSlider
+          axis="z"
+          value={settings.verticalExaggeration}
+          onChange={(value) => onChange({ verticalExaggeration: value })}
+        />
+
+        {(settings.xExaggeration !== 1 ||
+          settings.yExaggeration !== 1 ||
+          settings.verticalExaggeration !== 1) && (
+          <button
+            type="button"
+            onClick={() =>
+              onChange({ xExaggeration: 1, yExaggeration: 1, verticalExaggeration: 1 })
+            }
+            className="rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+          >
+            Reset to true scale
+          </button>
         )}
       </Section>
 
@@ -198,9 +207,49 @@ export function ViewportInspector({
   );
 }
 
+/**
+ * One axis scale, on a log slider.
+ *
+ * Logarithmic because the useful range spans two orders of magnitude in each
+ * direction, and a linear slider would bury everything below 1 in a few pixels.
+ */
+function AxisSlider({
+  axis,
+  value,
+  onChange,
+}: {
+  axis: "x" | "y" | "z";
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <Field label={`${axis} exaggeration ${formatScale(value)}`}>
+      <input
+        type="range"
+        min={Math.log10(MIN_SCALE)}
+        max={Math.log10(MAX_SCALE)}
+        step={0.02}
+        value={Math.log10(value)}
+        onChange={(event) => onChange(snapScale(10 ** Number(event.target.value)))}
+        className="w-full accent-sky-400"
+        aria-label={`${axis} exaggeration`}
+      />
+    </Field>
+  );
+}
+
+const MIN_SCALE = 0.01;
+const MAX_SCALE = 100;
+
+/** Land exactly on 1 near the middle, so true scale is reachable by dragging. */
+function snapScale(scale: number): number {
+  return Math.abs(scale - 1) < 0.03 ? 1 : scale;
+}
+
 function formatScale(scale: number): string {
-  if (scale >= 0.999) return "off";
-  return `1/${Math.round(1 / scale)}`;
+  if (scale === 1) return "1x (true)";
+  if (scale < 1) return `1/${(1 / scale).toFixed(scale < 0.1 ? 0 : 1)}`;
+  return `${scale.toFixed(scale < 10 ? 1 : 0)}x`;
 }
 
 function rampPreview(name: ColormapName): string {

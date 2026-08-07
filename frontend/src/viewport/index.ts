@@ -11,7 +11,14 @@ import { ArcballCamera } from "./camera/arcball";
 import { packDisv, FLOATS_PER_VERTEX, type PackedMesh } from "./geometry/disv";
 import { COLORMAP_SIZE, colormapTexels, type ColormapName } from "./scalars/colormap";
 import prismShader from "./gpu/shaders/prism.wgsl?raw";
-import type { FrameStats, GridGeometry, ScalarSet, Viewport, ViewportOptions } from "./types";
+import type {
+  CameraView,
+  FrameStats,
+  GridGeometry,
+  ScalarSet,
+  Viewport,
+  ViewportOptions,
+} from "./types";
 
 const FRAME_UNIFORM_FLOATS = 16 + 4 + 4 + 4; // viewProj, params, gridInfo, lightDir
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
@@ -132,6 +139,16 @@ export async function createViewport(
   let range: [number, number] = [0, 1];
   let logScale = false;
   const nodata = options.nodata ?? -1e30;
+
+  const cameraListeners = new Set<(view: CameraView) => void>();
+
+  function publishCamera() {
+    if (cameraListeners.size === 0) return;
+    const view = camera.screenBasis();
+    for (const listener of cameraListeners) {
+      listener(view);
+    }
+  }
 
   let dirty = true;
   let running = true;
@@ -354,6 +371,7 @@ export async function createViewport(
 
   const detachInput = attachPointerControls(canvas, camera, () => {
     dirty = true;
+    publishCamera();
   });
 
   return {
@@ -396,6 +414,14 @@ export async function createViewport(
       axisScale = [x, y, z];
       fitCamera();
       dirty = true;
+      publishCamera();
+    },
+    onCamera(listener) {
+      cameraListeners.add(listener);
+      // Fire once so a subscriber starts from the current view rather than
+      // waiting for the first interaction.
+      listener(camera.screenBasis());
+      return () => cameraListeners.delete(listener);
     },
     frameAll() {
       fitCamera();
@@ -423,6 +449,7 @@ export async function createViewport(
     destroy() {
       running = false;
       detachInput();
+      cameraListeners.clear();
       releaseScalars();
       releaseGeometry();
       depthTexture?.destroy();

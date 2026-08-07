@@ -34,6 +34,13 @@ export interface ViewportOptions {
   colormap?: ColormapName;
 }
 
+export interface CameraView {
+  /** World direction that points right on screen. */
+  right: [number, number, number];
+  /** World direction that points up on screen. */
+  up: [number, number, number];
+}
+
 export interface FrameStats {
   /** Frames drawn since the viewport was created. */
   frames: number;
@@ -61,6 +68,13 @@ export interface Viewport {
    * a 1D column render as a slab.
    */
   setAxisScale(x: number, y: number, z: number): void;
+  /**
+   * Watch the camera, for overlays drawn in HTML over the canvas.
+   *
+   * Fires on orbit, pan and zoom with the world directions that currently
+   * point right and up on screen. Returns an unsubscribe function.
+   */
+  onCamera(listener: (view: CameraView) => void): () => void;
   frameAll(): void;
   requestRender(): void;
   /**

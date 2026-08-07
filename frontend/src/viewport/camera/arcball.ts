@@ -110,6 +110,20 @@ export class ArcballCamera {
     return mat4.multiply(projection, view) as Float32Array;
   }
 
+  /**
+   * The world directions that point right and up on screen.
+   *
+   * Public because an orientation gizmo needs them: projecting the three world
+   * axes onto these gives their screen directions without exposing matrices.
+   */
+  screenBasis(): { right: [number, number, number]; up: [number, number, number] } {
+    const { right, up } = this.basis();
+    return {
+      right: [right[0], right[1], right[2]],
+      up: [up[0], up[1], up[2]],
+    };
+  }
+
   /** Screen-space right and up axes, used to turn a drag into a world move. */
   private basis() {
     const forward = vec3.normalize(vec3.subtract(this.state.target, this.eye));

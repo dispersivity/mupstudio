@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createViewport } from "@/viewport";
-import type { Viewport } from "@/viewport/types";
+import type { CameraView, Viewport } from "@/viewport/types";
 import { fetchCatalog, ViewportClient, type DatasetCatalog } from "@/net/viewportClient";
 import type { DatasetListing } from "@/results/DatasetPicker";
 import { Colorbar } from "./Colorbar";
 import { TimeControls } from "./TimeControls";
 import { ViewportInspector, type ViewSettings } from "./ViewportInspector";
+import { AxisTriad } from "./AxisTriad";
 
 type Phase =
   | { status: "loading"; detail: string }
@@ -62,8 +63,10 @@ export function ViewportHost({
     autoRange: true,
     logScale: false,
     verticalExaggeration: 1,
-    thinAxisScale: 1,
+    xExaggeration: 1,
+    yExaggeration: 1,
   });
+  const [camera, setCamera] = useState<CameraView | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -120,8 +123,10 @@ export function ViewportHost({
         setDataRange([scalars.vmin, scalars.vmax]);
         setView((current) => ({
           ...current,
-          // A squash belongs to one grid, so it does not follow you to another.
-          thinAxisScale: 1,
+          // Axis scaling belongs to one grid, so it does not follow you to another.
+          xExaggeration: 1,
+          yExaggeration: 1,
+          verticalExaggeration: 1,
           ...(current.autoRange ? { vmin: scalars.vmin, vmax: scalars.vmax } : {}),
         }));
         setPhase({ status: "ready" });
@@ -171,15 +176,14 @@ export function ViewportHost({
     viewport.setRange(view.vmin, view.vmax);
     viewport.setLogScale(view.logScale);
 
-    // The squash applies only to the axis the grid is one cell across, so a
-    // normal grid is never distorted by it.
-    const squash = catalog?.thinAxis ?? null;
-    viewport.setAxisScale(
-      squash === "x" ? view.thinAxisScale : 1,
-      squash === "y" ? view.thinAxisScale : 1,
-      view.verticalExaggeration,
-    );
-  }, [view, phase.status, catalog?.thinAxis]);
+    viewport.setAxisScale(view.xExaggeration, view.yExaggeration, view.verticalExaggeration);
+  }, [view, phase.status]);
+
+  // Follow the camera so the orientation gizmo can be drawn in HTML.
+  useEffect(() => {
+    if (phase.status !== "ready") return;
+    return viewportRef.current?.onCamera(setCamera);
+  }, [phase.status]);
 
   const seek = useCallback((index: number) => {
     viewportRef.current?.setTimestep(index);
@@ -303,6 +307,7 @@ export function ViewportHost({
               {catalog.ncells.toLocaleString()} cells, {catalog.nlay}{" "}
               {catalog.nlay === 1 ? "layer" : "layers"}
             </div>
+            <div className="tabular-nums text-zinc-500">{formatExtent(catalog)}</div>
             {catalog.status && catalog.status !== "succeeded" && (
               <div className="mt-1 text-amber-300">
                 run {catalog.status}
@@ -319,6 +324,15 @@ export function ViewportHost({
             label={component ?? catalog.components[0]?.name}
           />
 
+          <AxisTriad
+            camera={camera}
+            exaggeration={{
+              x: view.xExaggeration,
+              y: view.yExaggeration,
+              z: view.verticalExaggeration,
+            }}
+          />
+
           <TimeControls
             timestep={timestep}
             times={times}
@@ -331,4 +345,12 @@ export function ViewportHost({
       )}
     </div>
   );
+}
+
+/** The model's true size, whatever scaling the view is using. */
+function formatExtent(catalog: DatasetCatalog): string {
+  const span = (axis: number) => catalog.bounds.max[axis] - catalog.bounds.min[axis];
+  const round = (value: number) =>
+    value >= 100 ? value.toFixed(0) : value >= 1 ? value.toFixed(1) : value.toPrecision(2);
+  return `${round(span(0))} x ${round(span(1))} x ${round(span(2))}`;
 }
