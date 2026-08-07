@@ -4,6 +4,7 @@ import type { Viewport } from "@/viewport/types";
 import { fetchCatalog, ViewportClient, type DatasetCatalog } from "@/net/viewportClient";
 import { Colorbar } from "./Colorbar";
 import { TimeControls } from "./TimeControls";
+import { ViewportInspector, type ViewSettings } from "./ViewportInspector";
 
 type Phase =
   | { status: "loading"; detail: string }
@@ -15,6 +16,8 @@ export interface ViewportHostProps {
   nlay?: number;
   ntimes?: number;
   playbackFps?: number;
+  /** Lets the shell render this viewport's controls in its own inspector pane. */
+  onInspector?: (panel: React.ReactNode) => void;
 }
 
 /**
@@ -29,6 +32,7 @@ export function ViewportHost({
   nlay = 6,
   ntimes = 40,
   playbackFps = 12,
+  onInspector,
 }: ViewportHostProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<Viewport | null>(null);
@@ -39,7 +43,15 @@ export function ViewportHost({
   const [timeStride, setTimeStride] = useState(1);
   const [timestep, setTimestep] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [range, setRange] = useState<[number, number]>([0, 1]);
+  const [dataRange, setDataRange] = useState<[number, number]>([0, 1]);
+  const [view, setView] = useState<ViewSettings>({
+    colormap: "viridis",
+    vmin: 0,
+    vmax: 1,
+    autoRange: true,
+    logScale: false,
+    verticalExaggeration: 1,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,7 +98,10 @@ export function ViewportHost({
         viewport.setScalars(scalars);
         setTimes(scalars.times);
         setTimeStride(scalars.timeStride);
-        setRange([scalars.vmin, scalars.vmax]);
+        setDataRange([scalars.vmin, scalars.vmax]);
+        setView((current) =>
+          current.autoRange ? { ...current, vmin: scalars.vmin, vmax: scalars.vmax } : current,
+        );
         setPhase({ status: "ready" });
       } catch (error) {
         if (!disposed) {
@@ -121,10 +136,46 @@ export function ViewportHost({
     return () => observer.disconnect();
   }, []);
 
+  // Push display settings to the GPU. Each of these is one call and one
+  // redraw; none of them re-uploads data.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || phase.status !== "ready") return;
+
+    viewport.setColormap(view.colormap);
+    viewport.setRange(view.vmin, view.vmax);
+    viewport.setLogScale(view.logScale);
+    viewport.setVerticalExaggeration(view.verticalExaggeration);
+  }, [view, phase.status]);
+
   const seek = useCallback((index: number) => {
     viewportRef.current?.setTimestep(index);
     setTimestep(index);
   }, []);
+
+  const updateView = useCallback((next: Partial<ViewSettings>) => {
+    setView((current) => ({ ...current, ...next }));
+  }, []);
+
+  // Hand the shell this viewport's controls so they render in its inspector.
+  useEffect(() => {
+    if (!onInspector) return;
+    if (phase.status !== "ready" || !catalog) {
+      onInspector(null);
+      return;
+    }
+    onInspector(
+      <ViewportInspector
+        settings={view}
+        dataRange={dataRange}
+        cells={catalog.ncells}
+        layers={catalog.nlay}
+        component={catalog.components[0]?.name ?? "—"}
+        unit={catalog.components[0]?.unit ?? ""}
+        onChange={updateView}
+      />,
+    );
+  }, [onInspector, phase.status, catalog, view, dataRange, updateView]);
 
   useEffect(() => {
     if (!playing || times.length < 2) return;
@@ -169,9 +220,9 @@ export function ViewportHost({
           </div>
 
           <Colorbar
-            colormap="viridis"
-            vmin={range[0]}
-            vmax={range[1]}
+            colormap={view.colormap}
+            vmin={view.vmin}
+            vmax={view.vmax}
             unit={catalog.components[0]?.unit}
             label={catalog.components[0]?.name}
           />

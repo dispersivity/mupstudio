@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { detectWebGPU, type GpuSupport } from "@/lib/webgpu";
-import { ViewportHost } from "@/viewport-host/ViewportHost";
+import { AppShell } from "./AppShell";
 import { PerfPage } from "@/perf/PerfPage";
 import { UnsupportedPage } from "./UnsupportedPage";
 
@@ -47,11 +47,7 @@ export function App() {
     );
   }
 
-  return (
-    <div className="h-full w-full">
-      <ViewportHost ncpl={settings.ncpl} nlay={settings.nlay} ntimes={settings.ntimes} />
-    </div>
-  );
+  return <AppShell ncpl={settings.ncpl} nlay={settings.nlay} ntimes={settings.ntimes} />;
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

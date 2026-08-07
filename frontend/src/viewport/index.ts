@@ -128,6 +128,7 @@ export async function createViewport(
   let timestep = 0;
   let colormap: ColormapName = options.colormap ?? "viridis";
   let verticalExaggeration = options.verticalExaggeration ?? 1;
+  let gridBounds: GridGeometry["bounds"] | null = null;
   let range: [number, number] = [0, 1];
   let logScale = false;
   const nodata = options.nodata ?? -1e30;
@@ -248,7 +249,8 @@ export async function createViewport(
     };
 
     rebuildFrameBindGroup();
-    camera.frameBounds(input.bounds.min, input.bounds.max);
+    gridBounds = input.bounds;
+    fitCamera();
     dirty = true;
   }
 
@@ -269,6 +271,16 @@ export async function createViewport(
     timestep = Math.min(timestep, buffers.length - 1);
     range = [set.vmin, set.vmax];
     dirty = true;
+  }
+
+  /** Frame the model at its current vertical exaggeration. */
+  function fitCamera() {
+    if (!gridBounds) return;
+    const { min, max } = gridBounds;
+    camera.frameBounds(
+      [min[0], min[1], min[2] * verticalExaggeration],
+      [max[0], max[1], max[2] * verticalExaggeration],
+    );
   }
 
   function writeUniforms() {
@@ -375,9 +387,13 @@ export async function createViewport(
     },
     setVerticalExaggeration(factor) {
       verticalExaggeration = factor;
+      // Stretching z without refitting pushes the model out of view, so the
+      // camera follows the extent it is now looking at.
+      fitCamera();
       dirty = true;
     },
     frameAll() {
+      fitCamera();
       dirty = true;
     },
     requestRender() {
