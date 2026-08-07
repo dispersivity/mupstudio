@@ -158,6 +158,68 @@ def _serve_check(application: object, *, host: str, port: int) -> None:
     typer.echo("serve --check passed")
 
 
+@app.command("new")
+def new_project(
+    name: Annotated[str, typer.Argument(help="Project name")],
+    engine: Annotated[str, typer.Option(help="mf6rtm or pht3d")] = "mf6rtm",
+    cells: Annotated[int, typer.Option(help="Cells along the column")] = 50,
+    length: Annotated[float, typer.Option(help="Column length")] = 0.5,
+    directory: Annotated[Path | None, typer.Option(help="Where to create it")] = None,
+) -> None:
+    """Create a project as a 1D column, the shape most benchmarks use.
+
+    Writes a directory of TOML you can open in the app or edit by hand.
+    """
+    from mupstudio.schema.common import StressPeriod, TimeDiscretisation
+    from mupstudio.schema.grid import column_grid
+    from mupstudio.schema.project import Project, ProjectMeta
+    from mupstudio.store import projectstore
+
+    if engine not in {"mf6rtm", "pht3d"}:
+        typer.echo(f"unknown engine {engine!r}; choose mf6rtm or pht3d", err=True)
+        raise typer.Exit(code=1)
+
+    project = Project(
+        meta=ProjectMeta(name=name, engine=engine),  # type: ignore[arg-type]
+        grid=column_grid(ncells=cells, length=length),
+        time=TimeDiscretisation(periods=[StressPeriod(perlen=1.0, nstp=10)]),
+    )
+
+    try:
+        created = projectstore.create(directory or Path.cwd(), name, project)
+    except projectstore.ProjectError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(f"created {created}")
+    typer.echo(f"  {project.describe()}")
+    for file in sorted(path.name for path in created.iterdir() if path.suffix == ".toml"):
+        typer.echo(f"  {file}")
+
+
+@app.command("show")
+def show_project(
+    directory: Annotated[Path, typer.Argument(help="A .mup project directory")],
+) -> None:
+    """Validate a project and print what it contains."""
+    from mupstudio.store import projectstore
+
+    try:
+        project = projectstore.load(directory)
+    except projectstore.ProjectError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(project.describe())
+    typer.echo(f"  simulated time: {project.time.total_time} {project.meta.time_unit}")
+    if project.flow.packages:
+        typer.echo("  boundaries:")
+        for package in project.flow.packages:
+            typer.echo(f"    {package.id} ({package.kind})")
+    else:
+        typer.echo("  boundaries: none yet")
+
+
 @app.command("import-run")
 def import_run(
     workdir: Annotated[Path, typer.Argument(help="A finished mf6rtm/MODFLOW 6 run directory")],
