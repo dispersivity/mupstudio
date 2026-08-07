@@ -45,9 +45,7 @@ export class ViewportClient {
 
   connect(): Promise<void> {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(
-      `${protocol}//${location.host}/api/v1/ws/viewport?${this.params}`,
-    );
+    const socket = new WebSocket(`${protocol}//${location.host}/api/v1/ws/viewport?${this.params}`);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
 

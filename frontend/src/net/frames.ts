@@ -83,7 +83,9 @@ export function decodeFrame(buffer: ArrayBuffer): Frame {
 
   const version = view.getUint16(4, true);
   if (version !== VERSION) {
-    throw new FrameError(`frame version ${version} is not supported (this build speaks ${VERSION})`);
+    throw new FrameError(
+      `frame version ${version} is not supported (this build speaks ${VERSION})`,
+    );
   }
 
   const flags = view.getUint16(6, true);

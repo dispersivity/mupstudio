@@ -76,6 +76,43 @@ jobs:
       - run: pnpm --dir frontend install --frozen-lockfile
       - run: pnpm --dir frontend test --run
 
+  # The M1 gate. macos runners have a real GPU; ubuntu would fall back to
+  # SwiftShader and measure nothing useful, so this is macOS only. Advisory for
+  # now: it reports numbers and fails on a large regression, but the
+  # authoritative check is `just perf` on a dev machine (see docs/perf-baseline.md).
+  perf:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: macos-14
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: uv sync
+      - run: pnpm --dir frontend install --frozen-lockfile
+      - run: pnpm --dir frontend exec playwright install chromium
+
+      - name: run the frame-time harness
+        run: |
+          set -euo pipefail
+          uv run uvicorn mupstudio.server.app:create_app --factory --port 8000 &
+          pnpm --dir frontend dev --port 5173 &
+          npx wait-on http://127.0.0.1:8000/api/v1/health http://localhost:5173
+          node frontend/scripts/perf.mjs --url http://localhost:5173 \
+            --ncpl 50000 --nlay 10 --frames 200 --channel chromium
+        env:
+          MUPSTUDIO_DEV: "1"
+
   wheel:
     runs-on: ubuntu-latest
     steps:

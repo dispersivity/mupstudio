@@ -11,7 +11,11 @@ const BROWSERS = [
  * WebGL fallback, so there is no degraded mode to offer — say why, and give
  * the user something to copy into a bug report.
  */
-export function UnsupportedPage({ support }: { support: Extract<GpuSupport, { supported: false }> }) {
+export function UnsupportedPage({
+  support,
+}: {
+  support: Extract<GpuSupport, { supported: false }>;
+}) {
   const diagnostics = [
     `reason: ${support.reason}`,
     `detail: ${support.detail}`,
@@ -36,7 +40,9 @@ export function UnsupportedPage({ support }: { support: Extract<GpuSupport, { su
       </section>
 
       <section>
-        <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Known-good browsers</h2>
+        <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          Known-good browsers
+        </h2>
         <ul className="mt-1 list-inside list-disc text-sm text-zinc-600 dark:text-zinc-400">
           {BROWSERS.map((browser) => (
             <li key={browser}>{browser}</li>

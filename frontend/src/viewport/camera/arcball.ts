@@ -60,7 +60,8 @@ export class ArcballCamera {
    * the same on-screen amount however far out the camera is.
    */
   pan(deltaX: number, deltaY: number, viewportHeight: number) {
-    const worldPerPixel = (2 * this.state.distance * Math.tan(this.state.fovY / 2)) / viewportHeight;
+    const worldPerPixel =
+      (2 * this.state.distance * Math.tan(this.state.fovY / 2)) / viewportHeight;
     const { right, up } = this.basis();
 
     for (let axis = 0; axis < 3; axis++) {
@@ -79,17 +80,11 @@ export class ArcballCamera {
 
   /** Frame an axis-aligned box, leaving a little margin around it. */
   frameBounds(min: readonly number[], max: readonly number[], margin = 1.25) {
-    this.state.target = [
-      (min[0] + max[0]) / 2,
-      (min[1] + max[1]) / 2,
-      (min[2] + max[2]) / 2,
-    ];
+    this.state.target = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
 
     const radius =
-      Math.max(
-        Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2,
-        MIN_DISTANCE,
-      ) * margin;
+      Math.max(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2, MIN_DISTANCE) *
+      margin;
 
     this.state.distance = radius / Math.sin(this.state.fovY / 2);
     // Keep the whole model inside the frustum whatever its scale.

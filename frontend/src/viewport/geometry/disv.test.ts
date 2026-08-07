@@ -91,7 +91,9 @@ describe("packDisv", () => {
     const mesh = packDisv(twoSquares());
 
     for (let quad = 0; quad < 8; quad++) {
-      const faces = [0, 1, 2, 3].map((corner) => vertexAt(mesh.wallVertices, quad * 4 + corner).face);
+      const faces = [0, 1, 2, 3].map(
+        (corner) => vertexAt(mesh.wallVertices, quad * 4 + corner).face,
+      );
       expect(faces).toEqual([CAP_TOP, CAP_TOP, CAP_BOTTOM, CAP_BOTTOM]);
     }
   });

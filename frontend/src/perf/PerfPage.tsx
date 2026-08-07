@@ -10,7 +10,12 @@ import { FRAME_BUDGET_MS, measureFrameTimes, summarise, type PerfResult } from "
  * fixed schedule, then reports frame-time percentiles. Camera motion is
  * deterministic so two runs measure the same work.
  */
-export function PerfPage({ ncpl, nlay, ntimes, frames }: {
+export function PerfPage({
+  ncpl,
+  nlay,
+  ntimes,
+  frames,
+}: {
   ncpl: number;
   nlay: number;
   ntimes: number;
