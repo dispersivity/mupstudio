@@ -7,6 +7,8 @@ import { Colorbar } from "./Colorbar";
 import { TimeControls } from "./TimeControls";
 import { ViewportInspector, type ViewSettings } from "./ViewportInspector";
 import { AxisTriad } from "./AxisTriad";
+import { CellPicker, TimeSeriesPanel } from "@/results/TimeSeriesPanel";
+import { useCellSeries } from "@/results/useCellSeries";
 
 type Phase =
   | { status: "loading"; detail: string }
@@ -47,6 +49,7 @@ export function ViewportHost({
 }: ViewportHostProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<Viewport | null>(null);
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
 
   const [phase, setPhase] = useState<Phase>({ status: "loading", detail: "connecting" });
   const [catalog, setCatalog] = useState<DatasetCatalog | null>(null);
@@ -68,6 +71,8 @@ export function ViewportHost({
     showEdges: false,
   });
   const [camera, setCamera] = useState<CameraView | null>(null);
+  // Cells whose history is plotted, as the tokens the series endpoint reads.
+  const [cellTokens, setCellTokens] = useState<string[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -152,6 +157,10 @@ export function ViewportHost({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId, ncpl, nlay, ntimes]);
 
+  // A new dataset has a different grid, so cells picked on the old one mean
+  // nothing on it.
+  useEffect(() => setCellTokens([]), [datasetId]);
+
   // Keep the drawing buffer matched to the element's pixel size.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -186,6 +195,30 @@ export function ViewportHost({
     if (phase.status !== "ready") return;
     return viewportRef.current?.onCamera(setCamera);
   }, [phase.status]);
+
+  const addCell = useCallback((token: string) => {
+    setCellTokens((current) => (current.includes(token) ? current : [...current, token]));
+  }, []);
+
+  /** Click a cell to plot it; clicking one already plotted removes it. */
+  const pickCell = useCallback(async (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const viewport = viewportRef.current;
+    const canvas = canvasRef.current;
+    if (!viewport || !canvas) return;
+
+    const box = canvas.getBoundingClientRect();
+    const scale = canvas.width / box.width;
+    const picked = await viewport.pick(
+      (event.clientX - box.left) * scale,
+      (event.clientY - box.top) * scale,
+    );
+    if (!picked) return;
+
+    const token = `${picked.layer + 1}:${picked.cell + 1}`;
+    setCellTokens((current) =>
+      current.includes(token) ? current.filter((item) => item !== token) : [...current, token],
+    );
+  }, []);
 
   const seek = useCallback((index: number) => {
     viewportRef.current?.setTimestep(index);
@@ -234,6 +267,13 @@ export function ViewportHost({
     [catalog, component, datasetId, ncpl, nlay, ntimes],
   );
 
+  const seriesParams = new URLSearchParams({
+    ncpl: String(ncpl),
+    nlay: String(nlay),
+    ntimes: String(ntimes),
+  });
+  const seriesData = useCellSeries(datasetId, component, cellTokens, seriesParams);
+
   // Hand the shell this viewport's controls so they render in its inspector.
   useEffect(() => {
     if (!onInspector) return;
@@ -251,6 +291,7 @@ export function ViewportHost({
         onChange={updateView}
         onSelectComponent={selectComponent}
         onSelectDataset={onSelectDataset}
+        cellPicker={<CellPicker structured={seriesData.data?.structured ?? true} onAdd={addCell} />}
       />,
     );
   }, [
@@ -264,6 +305,8 @@ export function ViewportHost({
     listing,
     selectComponent,
     onSelectDataset,
+    addCell,
+    seriesData.data?.structured,
   ]);
 
   useEffect(() => {
@@ -280,7 +323,21 @@ export function ViewportHost({
 
   return (
     <div className="relative h-full w-full bg-zinc-950">
-      <canvas ref={canvasRef} className="block h-full w-full touch-none" />
+      <canvas
+        ref={canvasRef}
+        className="block h-full w-full touch-none"
+        onPointerDown={(event) => {
+          dragOrigin.current = { x: event.clientX, y: event.clientY };
+        }}
+        onClick={(event) => {
+          // Orbiting ends in a click too, so a pick only counts if the pointer
+          // barely moved.
+          const origin = dragOrigin.current;
+          const moved =
+            origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 4;
+          if (!moved) void pickCell(event);
+        }}
+      />
 
       {phase.status !== "ready" && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80">
@@ -324,6 +381,17 @@ export function ViewportHost({
             vmax={view.vmax}
             unit={catalog.components.find((entry) => entry.name === component)?.unit}
             label={component ?? catalog.components[0]?.name}
+          />
+
+          <TimeSeriesPanel
+            data={seriesData.data}
+            loading={seriesData.loading}
+            error={seriesData.error}
+            timeUnit=""
+            onRemove={(index) =>
+              setCellTokens((current) => current.filter((_, position) => position !== index))
+            }
+            onClear={() => setCellTokens([])}
           />
 
           <AxisTriad

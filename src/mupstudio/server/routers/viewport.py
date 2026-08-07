@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
 from mupstudio.results import datasets as ds
+from mupstudio.results import series
 from mupstudio.server.ws.protocol import (
     ClientMessage,
     DoneMessage,
@@ -82,6 +84,106 @@ def dataset_catalog(
     endpoint.
     """
     return ds.catalog_of(resolve(dataset_id, ncpl, nlay, ntimes))
+
+
+@router.get("/datasets/{dataset_id}/series")
+def cell_series(
+    dataset_id: str,
+    component: str,
+    cells: str = Query(
+        description=(
+            "Cells to sample, comma separated. Each is layer:cell, "
+            "layer:row:column, or @x:y for the nearest cell to a point. "
+            "Indices are one-based, as MODFLOW input reads."
+        )
+    ),
+    ncpl: int = Query(default=20_000, ge=1, le=2_000_000),
+    nlay: int = Query(default=6, ge=1, le=200),
+    ntimes: int = Query(default=40, ge=1, le=1000),
+) -> dict[str, Any]:
+    """Values through time at chosen cells.
+
+    Returned as JSON rather than a binary frame: a series is a few hundred
+    numbers, and it goes to a chart in React rather than to the GPU.
+    """
+    source = resolve(dataset_id, ncpl, nlay, ntimes)
+    mesh = source.mesh
+    columns = _column_count(source)
+
+    try:
+        references = [
+            _parse_cell(mesh, token, columns) for token in cells.split(",") if token.strip()
+        ]
+    except series.CellLookupError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    if not references:
+        raise HTTPException(status_code=400, detail="no cells given")
+
+    values = source.all_timesteps(component)
+    low, high = source.component_range(component)
+
+    return {
+        "dataset": dataset_id,
+        "component": component,
+        "unit": source.component_unit(component),
+        "times": source.times,
+        "vmin": low,
+        "vmax": high,
+        "structured": columns > 0,
+        "series": [
+            {
+                **reference.as_dict(structured=columns > 0),
+                "values": series.extract(values, reference),
+            }
+            for reference in references
+        ],
+    }
+
+
+def _column_count(source: ds.Dataset) -> int:
+    """Columns per row, or 0 when the grid is not structured.
+
+    Taken from the geometry rather than carried through: a collected run keeps
+    the mesh, not the discretisation that produced it, and a single row of
+    distinct x positions is what makes row and column indexing meaningful.
+    """
+    centers = source.mesh.cell_centers
+    distinct_y = len(np.unique(np.round(centers[:, 1].astype(np.float64), 6)))
+    if distinct_y == 0 or source.mesh.ncpl % distinct_y != 0:
+        return 0
+    return source.mesh.ncpl // distinct_y
+
+
+def _parse_cell(mesh, token: str, columns: int):  # type: ignore[no-untyped-def]
+    """One cell reference, in any of the three accepted spellings."""
+    token = token.strip()
+
+    if token.startswith("@"):
+        # Colon-separated, like the index forms: comma already separates the
+        # list, so a point written @x,y would be torn in half.
+        try:
+            x, y = (float(part) for part in token[1:].split(":", 1))
+        except ValueError:
+            raise series.CellLookupError(f"{token!r} is not a point like @100:250") from None
+        return series.with_row_column(series.nearest(mesh, x, y), columns)
+
+    parts = token.split(":")
+    try:
+        numbers = [int(part) - 1 for part in parts]
+    except ValueError:
+        raise series.CellLookupError(
+            f"{token!r} is not a cell; use layer:cell, layer:row:column or @x:y"
+        ) from None
+
+    if len(numbers) == 2:
+        return series.with_row_column(series.by_index(mesh, numbers[0], numbers[1]), columns)
+    if len(numbers) == 3:
+        return series.by_row_column(mesh, numbers[0], numbers[1], numbers[2], columns)
+
+    raise series.CellLookupError(
+        f"{token!r} is not a cell; use layer:cell, layer:row:column or @x:y"
+    )
 
 
 @router.websocket("/ws/viewport")

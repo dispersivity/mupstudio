@@ -38,6 +38,7 @@ export function ViewportInspector({
   onChange,
   onSelectComponent,
   onSelectDataset,
+  cellPicker,
 }: {
   settings: ViewSettings;
   dataRange: [number, number];
@@ -47,6 +48,7 @@ export function ViewportInspector({
   onChange: (next: Partial<ViewSettings>) => void;
   onSelectComponent: (name: string) => void;
   onSelectDataset?: (datasetId: string) => void;
+  cellPicker?: React.ReactNode;
 }) {
   const unit = catalog.components.find((entry) => entry.name === component)?.unit ?? "";
 
@@ -162,6 +164,15 @@ export function ViewportInspector({
         </label>
       </Section>
 
+      {cellPicker && (
+        <Section
+          title="Time series"
+          hint="Click a cell in the viewport to plot its history, or add one here."
+        >
+          {cellPicker}
+        </Section>
+      )}
+
       <Section title="Geometry">
         <label className="flex items-center gap-2">
           <input
@@ -270,11 +281,20 @@ function rampPreview(name: ColormapName): string {
   return `linear-gradient(to right, ${stops})`;
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
       <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{title}</h3>
-      {children}
+      {hint && <p className="text-[10px] leading-relaxed text-zinc-600">{hint}</p>}
+      <div className="space-y-3">{children}</div>
     </section>
   );
 }

@@ -48,6 +48,9 @@ struct VertexOut {
   @builtin(position) clipPosition: vec4<f32>,
   @location(0) @interpolate(flat) value: f32,
   @location(1) @interpolate(flat) shade: f32,
+  // Which cell this fragment belongs to, for picking. Flat: a cell is one
+  // colour and one identity, so interpolating either would be wrong.
+  @location(2) @interpolate(flat) cellId: u32,
 };
 
 fn cellIndex(cellInLayer: f32, layer: u32) -> u32 {
@@ -70,6 +73,7 @@ fn vertexMain(input: VertexIn, @builtin(instance_index) layer: u32) -> VertexOut
   // Flat faces get a fixed shade so the prisms read as solid without normals.
   // Walls are darker than caps, which is enough to see the layering.
   out.shade = select(0.72, 1.0, input.face < 0.5);
+  out.cellId = cell;
   return out;
 }
 
@@ -110,4 +114,16 @@ fn fragmentEdge(input: VertexOut) -> @location(0) vec4<f32> {
     discard;
   }
   return vec4<f32>(0.06, 0.07, 0.09, 1.0);
+}
+
+// Cell identity, rendered to an offscreen integer target and read back a pixel
+// at a time. Ids are offset by one so zero can mean "nothing here": the target
+// is cleared to zero and a click on the background must be distinguishable
+// from a click on cell 0.
+@fragment
+fn fragmentPick(input: VertexOut) -> @location(0) u32 {
+  if (input.value == frame.gridInfo.z) {
+    discard;
+  }
+  return input.cellId + 1u;
 }

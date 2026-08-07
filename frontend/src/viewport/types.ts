@@ -35,6 +35,12 @@ export interface ViewportOptions {
   colormap?: ColormapName;
 }
 
+export interface PickedCell {
+  /** Index within the layer: cell2d on a vertex grid. */
+  cell: number;
+  layer: number;
+}
+
 export interface CameraView {
   /** World direction that points right on screen. */
   right: [number, number, number];
@@ -78,6 +84,14 @@ export interface Viewport {
    * point right and up on screen. Returns an unsubscribe function.
    */
   onCamera(listener: (view: CameraView) => void): () => void;
+  /**
+   * Which cell is under a point on the canvas, or null for the background.
+   *
+   * Coordinates are in canvas pixels. Answered by rendering cell identities to
+   * an offscreen target and reading one pixel, so it is exact at any camera
+   * angle and costs nothing when nobody is clicking.
+   */
+  pick(x: number, y: number): Promise<PickedCell | null>;
   frameAll(): void;
   requestRender(): void;
   /**
