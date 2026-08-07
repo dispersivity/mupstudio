@@ -106,6 +106,23 @@ def read_mesh(workdir: Path) -> DisvMesh:
     return mesh
 
 
+def is_reactive_run(workdir: Path) -> bool:
+    """Whether mf6rtm drove this run, rather than MODFLOW alone.
+
+    mf6rtm writes its run configuration next to the model, and only ever for a
+    reactive run. It matters because it changes what the concentrations mean:
+    PHREEQC works in mol per litre and MODFLOW transports mass per cubic metre,
+    so mf6rtm multiplies by a thousand on the way in.
+    """
+    return (Path(workdir) / "mf6rtm.toml").is_file()
+
+
+# Litres in a cubic metre. mf6rtm transports in mol/m3 because that is what
+# MODFLOW's mass balance wants with lengths in metres; chemistry is read and
+# written in mol/L, so results are converted back on the way out.
+LITRES_PER_CUBIC_METRE = 1000.0
+
+
 def read_component(workdir: Path, component: str) -> tuple[list[float], np.ndarray]:
     """Read one component's concentrations as ``(ntimes, nlay, ncpl)`` float32.
 

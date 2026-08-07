@@ -45,6 +45,9 @@ SOUT_NAME = "sout.parquet"
 # the unit rather than converting keeps collection lossless; conversion belongs
 # where a user asks for it.
 DEFAULT_UNIT = "mol/L"
+# A conservative tracer has no chemistry behind it, so its concentration is in
+# whatever the modeller meant when they typed the boundary value.
+TRACER_UNIT = "concentration"
 
 
 @dataclass
@@ -168,6 +171,14 @@ def collect_mf6rtm_run(
     mesh = reader.read_mesh(workdir)
     write_mesh(destination, mesh)
 
+    # A reactive run's concentrations arrive in mol/m3, which is what MODFLOW
+    # transported; everything downstream, including the chemistry that produced
+    # them, speaks mol/L. A conservative tracer carries whatever units the
+    # modeller put in the boundary, so it is left alone and labelled as such.
+    reactive = reader.is_reactive_run(workdir)
+    scale = 1.0 / reader.LITRES_PER_CUBIC_METRE if reactive else 1.0
+    unit = DEFAULT_UNIT if reactive else TRACER_UNIT
+
     warnings: list[str] = []
     components: list[dict[str, object]] = []
     times: list[float] = []
@@ -193,11 +204,14 @@ def collect_mf6rtm_run(
             )
             times = times[:shortest]
 
+        if scale != 1.0:
+            values = values * np.float32(scale)
+
         np.save(destination / SCALARS_DIR / f"{name}.npy", values)
         components.append(
             {
                 "name": name,
-                "unit": DEFAULT_UNIT,
+                "unit": unit,
                 "vmin": float(values.min()),
                 "vmax": float(values.max()),
             }

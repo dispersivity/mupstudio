@@ -12,8 +12,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from mupstudio.schema.chemistry import ChemistryModel
 from mupstudio.schema.common import Id, LengthUnit, TimeDiscretisation, TimeUnit
-from mupstudio.schema.flow import FlowModel
+from mupstudio.schema.flow import PACKAGE_NAMES, SOLUTE_CARRYING, FlowModel
 from mupstudio.schema.grid import GridSpec, StructuredGrid
 from mupstudio.schema.transport import TransportModel
 
@@ -62,6 +63,7 @@ class Project(BaseModel):
     time: TimeDiscretisation
     flow: FlowModel = Field(default_factory=FlowModel)
     transport: TransportModel = Field(default_factory=TransportModel)
+    chemistry: ChemistryModel = Field(default_factory=ChemistryModel)
     run: RunOptions = Field(default_factory=RunOptions)
 
     @model_validator(mode="after")
@@ -71,6 +73,7 @@ class Project(BaseModel):
         self._check_cells_are_inside_the_grid()
         self._check_series_match_the_stress_periods()
         self._check_engine_supports_features()
+        self._check_chemistry_matches_the_model()
         return self
 
     def _check_engine_supports_grid(self) -> None:
@@ -124,6 +127,51 @@ class Project(BaseModel):
             raise ValueError(
                 "dual porosity is not supported by MF6RTM yet; it writes for PHT3D only"
             )
+
+    def _check_chemistry_matches_the_model(self) -> None:
+        """Chemistry refers to the grid and to the flow boundaries.
+
+        The chemistry model validates its own internal references; what it
+        cannot see is whether the cells it zones exist, or whether the packages
+        it assigns water to are packages this project has.
+        """
+        chemistry = self.chemistry
+        if not chemistry.enabled:
+            return
+
+        if chemistry.compositions and chemistry.background is None:
+            raise ValueError(
+                "chemistry needs a background composition, so that cells no zone "
+                "covers still have water in them"
+            )
+
+        if isinstance(self.grid, StructuredGrid):
+            limits = {"layers": self.grid.nlay, "rows": self.grid.nrow, "columns": self.grid.ncol}
+            for zone in chemistry.zones:
+                for axis, limit in limits.items():
+                    for index in getattr(zone.cells, axis):
+                        if not 1 <= index <= limit:
+                            raise ValueError(
+                                f"chemistry zone {zone.id!r} refers to {axis[:-1]} {index}, "
+                                f"but the grid has {limit} (indices start at 1)"
+                            )
+
+        by_id = {package.id: package for package in self.flow.packages}
+        for package_id in chemistry.boundary_solutions:
+            package = by_id.get(package_id)
+            if package is None:
+                known = ", ".join(sorted(by_id)) or "none"
+                raise ValueError(
+                    f"chemistry assigns water to the boundary {package_id!r}, which this "
+                    f"project does not have (it has: {known})"
+                )
+            # A drain only takes water out, so giving it an inflow chemistry is
+            # a mistake worth catching rather than quietly ignoring.
+            if package.kind not in SOLUTE_CARRYING:
+                raise ValueError(
+                    f"boundary {package_id!r} is a {PACKAGE_NAMES[package.kind]}, which only "
+                    "removes water, so it cannot carry an inflow solution"
+                )
 
     @property
     def package_ids(self) -> list[Id]:

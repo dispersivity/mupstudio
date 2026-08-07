@@ -10,18 +10,23 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from mupstudio.compile.compiler import CompileError, compile_project
+from mupstudio.engines.mf6rtm.chemistry import ChemistryError
+from mupstudio.engines.mf6rtm.reactive import ReactiveWriteError, write_reactive
 from mupstudio.engines.mf6rtm.writer import write_mf6
 from mupstudio.jobs.base import JobSpec, Stage
 from mupstudio.schema.project import Project
 from mupstudio.schema.templates import starter_column
 from mupstudio.server.deps import runner_instance
 from mupstudio.store import projectstore, registry
+
+if TYPE_CHECKING:
+    from mupstudio.settings import Settings
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["projects"])
@@ -68,7 +73,8 @@ def _summary(entry: registry.ProjectEntry) -> ProjectSummary:
     )
 
 
-def _load(path: str) -> Project:
+def load_project(path: str) -> Project:
+    """Read a project, turning a bad path into a 400 rather than a traceback."""
     try:
         return projectstore.load(Path(path))
     except projectstore.ProjectError as error:
@@ -111,7 +117,7 @@ def create_project(request: NewProjectRequest) -> dict[str, Any]:
 def open_project(request: OpenProjectRequest) -> dict[str, Any]:
     """Remember an existing project directory and return what it contains."""
     directory = Path(request.path).expanduser()
-    project = _load(str(directory))
+    project = load_project(str(directory))
     entry = registry.remember(directory, name=project.meta.name, engine=project.meta.engine)
     return {"project": _summary(entry).model_dump(), "detail": describe(project)}
 
@@ -126,7 +132,7 @@ def forget_project(path: str) -> dict[str, str]:
 @router.get("/projects/detail")
 def project_detail(path: str) -> dict[str, Any]:
     """Everything the Project step displays."""
-    return describe(_load(path))
+    return describe(load_project(path))
 
 
 def describe(project: Project) -> dict[str, Any]:
@@ -170,7 +176,7 @@ def read_document(path: str) -> dict[str, Any]:
     holistic: a boundary's cell indices are only checkable against the grid, and
     a per-period series only against the stress periods.
     """
-    return {"document": _load(path).model_dump(mode="json")}
+    return {"document": load_project(path).model_dump(mode="json")}
 
 
 @router.put("/projects/document")
@@ -214,7 +220,7 @@ def validate_project(path: str) -> dict[str, Any]:
     Loading already enforces the schema, so this reports what compiling would
     warn about: a zone field with no geometry yet, a boundary kind not written.
     """
-    project = _load(path)
+    project = load_project(path)
     try:
         model = compile_project(project, root=Path(path))
     except CompileError as error:
@@ -235,7 +241,7 @@ def validate_project(path: str) -> dict[str, Any]:
 @router.post("/projects/write")
 def write_project(path: str) -> dict[str, Any]:
     """Write engine input into the project's runs directory."""
-    project = _load(path)
+    project = load_project(path)
     directory = Path(path)
 
     if project.meta.engine != "mf6rtm":
@@ -252,13 +258,57 @@ def write_project(path: str) -> dict[str, Any]:
     workdir = directory / "runs" / "latest"
     manifest = write_mf6(model, workdir)
 
-    return {
+    written = {
         "workdir": str(manifest.workdir),
         "files": manifest.files,
         "warnings": manifest.warnings,
         "flowName": manifest.flow_name,
         "transportName": manifest.transport_name,
+        "reactive": False,
+        "components": [],
     }
+
+    if not _is_reactive(project):
+        return written
+
+    # Chemistry is attached on top of the tracer model rather than instead of
+    # it: mf6rtm reads the simulation back, clones the transport model once per
+    # component, and overwrites. Equilibration happens here, so this is also
+    # where an impossible solution is first reported.
+    try:
+        reactive = write_reactive(
+            model,
+            manifest.workdir,
+            flow_name=manifest.flow_name,
+            transport_name=manifest.transport_name,
+        )
+    except (ChemistryError, ReactiveWriteError) as error:
+        detail = str(error)
+        output = getattr(error, "output", "")
+        raise HTTPException(
+            status_code=422,
+            detail=f"{detail}\n\n{output}".strip() if output else detail,
+        ) from error
+
+    written.update(
+        {
+            "files": reactive.files,
+            "reactive": True,
+            "components": reactive.components,
+            "chemistryLog": reactive.output,
+        }
+    )
+    return written
+
+
+def _is_reactive(project: Project) -> bool:
+    """Whether this project's chemistry should be written.
+
+    Both switches have to be on: a project can keep its chemistry while a run is
+    deliberately made conservative, which is how a tracer test of the same model
+    is set up.
+    """
+    return project.run.reactive and project.chemistry.enabled and bool(project.chemistry.solutions)
 
 
 @router.get("/projects/file")
@@ -296,28 +346,44 @@ async def run_project(path: str) -> dict[str, Any]:
     from mupstudio.doctor import find_executable
     from mupstudio.settings import Settings
 
-    project = _load(path)
+    project = load_project(path)
     written = write_project(path)
     workdir = Path(written["workdir"])
 
-    executable = project.run.executable or str(
-        find_executable("mf6", Settings.load().mf6_exe) or ""
-    )
-    if not executable:
-        raise HTTPException(
-            status_code=409,
-            detail="mf6 was not found; run 'mupstudio get-engines' or set mf6_exe in settings",
+    settings = Settings.load()
+    reactive = bool(written["reactive"])
+
+    if reactive:
+        # A reactive run is driven by mf6rtm, which steps MODFLOW through the
+        # shared library and calls PHREEQC between steps. It looks for that
+        # library in the model directory, so it is put there.
+        executable = project.run.executable or str(find_executable("mf6rtm") or "")
+        missing = (
+            "mf6rtm was not found; it installs with mupstudio, so check the environment "
+            "is the one mupstudio was installed into"
         )
+        name = "mf6rtm"
+    else:
+        executable = project.run.executable or str(find_executable("mf6", settings.mf6_exe) or "")
+        missing = "mf6 was not found; run 'mupstudio get-engines' or set mf6_exe in settings"
+        name = "mf6"
+
+    if not executable:
+        raise HTTPException(status_code=409, detail=missing)
+
+    warnings = list(written["warnings"])
+    if reactive:
+        warnings.extend(_stage_solver_library(workdir, settings))
 
     runner = runner_instance()
     record = await runner.submit(
         JobSpec(
-            stages=[Stage(argv=[executable], name="mf6")],
+            stages=[Stage(argv=[executable], name=name)],
             workdir=workdir,
             engine=project.meta.engine,
             label=project.meta.name,
             total_kper=project.time.nper,
-            expected_outputs=["*.hds", "*.ucn", "*.grb"],
+            expected_outputs=["*.hds", "*.ucn", "*.grb", "sout.csv"],
         )
     )
 
@@ -325,5 +391,33 @@ async def run_project(path: str) -> dict[str, Any]:
         "runId": record.run_id,
         "workdir": str(workdir),
         "files": written["files"],
-        "warnings": written["warnings"],
+        "warnings": warnings,
+        "reactive": reactive,
+        "components": written["components"],
     }
+
+
+def _stage_solver_library(workdir: Path, settings: Settings) -> list[str]:
+    """Put libmf6 next to the model, which is where mf6rtm looks for it.
+
+    Copied rather than pointed at, because the run directory is what gets
+    shipped to a cluster and a run that carries its own solver is one that
+    still works when it lands there.
+    """
+    import shutil
+
+    from mupstudio.doctor import find_executable as find
+
+    if any(workdir.glob("libmf6*")):
+        return []
+
+    mf6 = find("mf6", settings.mf6_exe)
+    candidates = sorted(mf6.parent.glob("libmf6*")) if mf6 else []
+    if not candidates:
+        return [
+            "libmf6 was not found next to mf6, so mf6rtm will look for it on the "
+            "library path; run 'mupstudio get-engines' if the run cannot start"
+        ]
+
+    shutil.copyfile(candidates[0], workdir / candidates[0].name)
+    return []

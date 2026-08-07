@@ -74,6 +74,32 @@ class CompiledBoundary:
         return max((len(records) for records in self.spd.values()), default=0)
 
 
+@dataclass(frozen=True)
+class CompiledChemistry:
+    """Chemistry as PHREEQC numbers it: one assemblage index per cell.
+
+    ``assemblages`` maps a PHREEQC block name to an int array of shape
+    ``(nlay, nrow, ncol)``. Zero means "none of this kind here", which is how
+    both PhreeqcRM and PHT3D read an absent assemblage, and is why numbering
+    starts at one.
+
+    The definitions are kept alongside, in the same numbering, so a writer can
+    emit the blocks and the cell map without going back to the schema.
+    """
+
+    assemblages: dict[str, np.ndarray]
+    # Block name to the ordered ids whose position gives each one its number.
+    numbering: dict[str, list[str]]
+
+    # The PHREEQC blocks a composition can name, in the order a .pqi is written.
+    BLOCKS = ("solution", "equilibrium_phases", "exchange", "surface", "kinetics", "gas_phase")
+
+    def number_of(self, block: str, item_id: str) -> int:
+        """The PHREEQC number an assemblage was given, or 0 if it has none."""
+        order = self.numbering.get(block, [])
+        return order.index(item_id) + 1 if item_id in order else 0
+
+
 @dataclass
 class CompiledModel:
     """Everything an engine writer needs, and nothing it has to interpret."""
@@ -82,6 +108,7 @@ class CompiledModel:
     grid: CompiledGrid
     properties: dict[str, np.ndarray]
     boundaries: list[CompiledBoundary] = field(default_factory=list)
+    chemistry: CompiledChemistry | None = None
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -114,8 +141,60 @@ def compile_project(project: Project, *, root: Path | None = None) -> CompiledMo
         grid=grid,
         properties=properties,
         boundaries=boundaries,
+        chemistry=_compile_chemistry(project, grid),
         warnings=warnings,
     )
+
+
+def _compile_chemistry(project: Project, grid: CompiledGrid) -> CompiledChemistry | None:
+    """Compositions and zones, as one assemblage number per cell.
+
+    Zones are painted in order, so a later zone overwrites an earlier one where
+    they overlap. That is what a zone list means everywhere else in the app, and
+    it lets a broad background be corrected by a narrow patch.
+    """
+    chemistry = project.chemistry
+    if not chemistry.enabled or not chemistry.compositions:
+        return None
+
+    numbering = {
+        "solution": [item.id for item in chemistry.solutions],
+        "equilibrium_phases": [item.id for item in chemistry.equilibrium_phases],
+        "exchange": [item.id for item in chemistry.exchange],
+        "surface": [item.id for item in chemistry.surface],
+        "kinetics": [item.id for item in chemistry.kinetics],
+        "gas_phase": [item.id for item in chemistry.gas_phases],
+    }
+
+    def numbers_for(composition_id: str) -> dict[str, int]:
+        composition = chemistry.composition(composition_id)
+        return {
+            block: (
+                numbering[block].index(referenced) + 1
+                if (referenced := getattr(composition, block)) in numbering[block]
+                else 0
+            )
+            for block in CompiledChemistry.BLOCKS
+        }
+
+    background = numbers_for(chemistry.background) if chemistry.background else {}
+    assemblages = {
+        block: np.full(grid.shape, background.get(block, 0), dtype=np.int32)
+        for block in CompiledChemistry.BLOCKS
+    }
+
+    for zone in chemistry.zones:
+        numbers = numbers_for(zone.composition)
+        layers = [index - 1 for index in zone.cells.layers]
+        rows = [index - 1 for index in zone.cells.rows]
+        columns = [index - 1 for index in zone.cells.columns]
+        # An outer product of the three lists: the schema names a box, which is
+        # what a cell range means for a structured grid.
+        selection = np.ix_(layers, rows, columns)
+        for block, number in numbers.items():
+            assemblages[block][selection] = number
+
+    return CompiledChemistry(assemblages=assemblages, numbering=numbering)
 
 
 def _compile_grid(spec: StructuredGrid) -> CompiledGrid:

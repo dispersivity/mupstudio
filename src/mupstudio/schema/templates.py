@@ -8,6 +8,15 @@ solute entering one end, water leaving the other.
 
 from __future__ import annotations
 
+from mupstudio.schema.chemistry import (
+    ChemistryModel,
+    Composition,
+    DatabaseRef,
+    EquilibriumPhases,
+    PhaseTarget,
+    SelectedOutput,
+    Solution,
+)
 from mupstudio.schema.common import ConstantSeries, StressPeriod, TimeDiscretisation, constant
 from mupstudio.schema.flow import (
     BoundaryPackage,
@@ -85,5 +94,67 @@ def starter_column(
         ),
         transport=TransportModel(
             dispersion=Dispersion(longitudinal=constant(length * DISPERSIVITY_FRACTION))
+        ),
+    )
+
+
+def starter_chemistry(database: str = "phreeqc.dat") -> ChemistryModel:
+    """The calcite and dolomite column, ready to run.
+
+    This is Appelo's cation exchange column stripped to its simplest reactive
+    form, and it is the benchmark every reactive transport code is checked
+    against: a calcite-bearing sand initially in equilibrium with its own pore
+    water, flushed with a magnesium chloride solution. Calcite dissolves,
+    dolomite precipitates, and the fronts arrive in a known order.
+
+    It exists so the Chemistry step opens with something a chemist recognises
+    and can edit, rather than with empty tables.
+    """
+    return ChemistryModel(
+        enabled=True,
+        database=DatabaseRef(name=database),
+        solutions=[
+            Solution(
+                id="background",
+                label="Pore water, calcite equilibrated",
+                ph=9.91,
+                pe=4.0,
+                concentrations={"C(+4)": 1.23e-4, "Ca": 1.23e-4, "Cl": 0.0, "Mg": 0.0},
+            ),
+            Solution(
+                id="inflow",
+                label="Magnesium chloride",
+                ph=7.0,
+                pe=4.0,
+                concentrations={"C(+4)": 0.0, "Ca": 0.0, "Cl": 2e-3, "Mg": 1e-3},
+            ),
+        ],
+        equilibrium_phases=[
+            EquilibriumPhases(
+                id="calcite_sand",
+                label="Calcite sand",
+                phases=[
+                    # Calcite is present and can dissolve; dolomite starts at
+                    # nothing and can only precipitate, which is what makes the
+                    # second front appear.
+                    PhaseTarget(phase="Calcite", saturation_index=0.0, moles=1.220625e-4),
+                    PhaseTarget(phase="Dolomite", saturation_index=0.0, moles=0.0),
+                ],
+            )
+        ],
+        compositions=[
+            Composition(
+                id="sand",
+                label="Calcite sand",
+                colour="#c8b48a",
+                solution="background",
+                equilibrium_phases="calcite_sand",
+            )
+        ],
+        background="sand",
+        boundary_solutions={"inflow": "inflow"},
+        selected_output=SelectedOutput(
+            totals=["Ca", "Cl", "Mg", "C"],
+            equilibrium_phases=["Calcite", "Dolomite"],
         ),
     )

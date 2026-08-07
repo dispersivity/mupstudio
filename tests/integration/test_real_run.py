@@ -119,10 +119,18 @@ class TestStore:
     def test_stored_values_match_the_source_output(
         self, store: ResultsStore, run_dir: Path
     ) -> None:
-        """The store must not alter the numbers, only rearrange them."""
-        _, expected = reader.read_component(run_dir, "Ca")
+        """The store rearranges the numbers, and converts their units once.
 
-        np.testing.assert_array_equal(np.asarray(store.scalars("Ca")), expected)
+        A reactive run's UCN files hold the mol/m3 MODFLOW transported; the
+        store is in mol/L, which is what the chemistry either side of the
+        transport is written in. That factor of a thousand is the only change
+        collection is allowed to make.
+        """
+        _, raw = reader.read_component(run_dir, "Ca")
+        expected = raw / reader.LITRES_PER_CUBIC_METRE
+
+        assert reader.is_reactive_run(run_dir)
+        np.testing.assert_allclose(np.asarray(store.scalars("Ca")), expected, rtol=1e-6)
 
     def test_a_timestep_is_a_slice_of_the_whole(self, store: ResultsStore) -> None:
         whole = store.scalars("Ca")
