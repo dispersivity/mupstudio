@@ -127,7 +127,7 @@ export async function createViewport(
 
   let timestep = 0;
   let colormap: ColormapName = options.colormap ?? "viridis";
-  let verticalExaggeration = options.verticalExaggeration ?? 1;
+  let axisScale: [number, number, number] = [1, 1, options.verticalExaggeration ?? 1];
   let gridBounds: GridGeometry["bounds"] | null = null;
   let range: [number, number] = [0, 1];
   let logScale = false;
@@ -273,21 +273,21 @@ export async function createViewport(
     dirty = true;
   }
 
-  /** Frame the model at its current vertical exaggeration. */
+  /** Frame the model as it is currently scaled. */
   function fitCamera() {
     if (!gridBounds) return;
     const { min, max } = gridBounds;
     camera.frameBounds(
-      [min[0], min[1], min[2] * verticalExaggeration],
-      [max[0], max[1], max[2] * verticalExaggeration],
+      [min[0] * axisScale[0], min[1] * axisScale[1], min[2] * axisScale[2]],
+      [max[0] * axisScale[0], max[1] * axisScale[1], max[2] * axisScale[2]],
     );
   }
 
   function writeUniforms() {
     uniformData.set(camera.viewProjection(), 0);
-    uniformData.set([verticalExaggeration, range[0], range[1], logScale ? 1 : 0], 16);
+    uniformData.set([0, range[0], range[1], logScale ? 1 : 0], 16);
     uniformData.set([geometry?.ncpl ?? 0, -1, nodata, 0], 20);
-    uniformData.set([0.4, 0.5, 0.76, 0], 24);
+    uniformData.set([...axisScale, 0], 24);
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
   }
 
@@ -386,9 +386,14 @@ export async function createViewport(
       dirty = true;
     },
     setVerticalExaggeration(factor) {
-      verticalExaggeration = factor;
-      // Stretching z without refitting pushes the model out of view, so the
+      axisScale = [axisScale[0], axisScale[1], factor];
+      // Rescaling without refitting pushes the model out of view, so the
       // camera follows the extent it is now looking at.
+      fitCamera();
+      dirty = true;
+    },
+    setAxisScale(x, y, z) {
+      axisScale = [x, y, z];
       fitCamera();
       dirty = true;
     },

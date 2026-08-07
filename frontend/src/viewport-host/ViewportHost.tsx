@@ -62,6 +62,7 @@ export function ViewportHost({
     autoRange: true,
     logScale: false,
     verticalExaggeration: 1,
+    thinAxisScale: 1,
   });
 
   useEffect(() => {
@@ -117,9 +118,12 @@ export function ViewportHost({
         setTimes(scalars.times);
         setTimeStride(scalars.timeStride);
         setDataRange([scalars.vmin, scalars.vmax]);
-        setView((current) =>
-          current.autoRange ? { ...current, vmin: scalars.vmin, vmax: scalars.vmax } : current,
-        );
+        setView((current) => ({
+          ...current,
+          // A squash belongs to one grid, so it does not follow you to another.
+          thinAxisScale: 1,
+          ...(current.autoRange ? { vmin: scalars.vmin, vmax: scalars.vmax } : {}),
+        }));
         setPhase({ status: "ready" });
       } catch (error) {
         if (!disposed) {
@@ -166,8 +170,16 @@ export function ViewportHost({
     viewport.setColormap(view.colormap);
     viewport.setRange(view.vmin, view.vmax);
     viewport.setLogScale(view.logScale);
-    viewport.setVerticalExaggeration(view.verticalExaggeration);
-  }, [view, phase.status]);
+
+    // The squash applies only to the axis the grid is one cell across, so a
+    // normal grid is never distorted by it.
+    const squash = catalog?.thinAxis ?? null;
+    viewport.setAxisScale(
+      squash === "x" ? view.thinAxisScale : 1,
+      squash === "y" ? view.thinAxisScale : 1,
+      view.verticalExaggeration,
+    );
+  }, [view, phase.status, catalog?.thinAxis]);
 
   const seek = useCallback((index: number) => {
     viewportRef.current?.setTimestep(index);

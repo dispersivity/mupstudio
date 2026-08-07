@@ -135,6 +135,9 @@ def catalog_of(dataset: Dataset) -> dict[str, Any]:
         "ncells": mesh.ncells,
         "nverts": int(mesh.vertices.shape[0]),
         "bounds": {"min": [xmin, ymin, zmin], "max": [xmax, ymax, zmax]},
+        # Present when the grid is one cell across: the client offers to squash
+        # that axis so a 1D or 2D profile does not render as a slab.
+        "thinAxis": mesh.thin_axis,
         "times": dataset.times,
         "components": [
             {

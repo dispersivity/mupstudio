@@ -23,6 +23,8 @@ export interface DatasetCatalog {
   ncells: number;
   nverts: number;
   bounds: { min: [number, number, number]; max: [number, number, number] };
+  /** "x" or "y" when the grid is one cell across that axis; null otherwise. */
+  thinAxis?: "x" | "y" | null;
   times: number[];
   components: { name: string; unit: string; vmin: number; vmax: number }[];
 }

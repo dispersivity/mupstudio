@@ -13,13 +13,16 @@
 
 struct Frame {
   viewProj: mat4x4<f32>,
-  // x: vertical exaggeration, y: scalar range min, z: scalar range max,
-  // w: 1 when the colour scale is logarithmic.
+  // x: unused (axis scaling moved to axisScale), y: scalar range min,
+  // z: scalar range max, w: 1 when the colour scale is logarithmic.
   params: vec4<f32>,
   // x: cells per layer, y: active layer or -1 for all, z: nodata sentinel,
   // w: unused.
   gridInfo: vec4<f32>,
-  lightDir: vec4<f32>,
+  // Per-axis world scale. z is vertical exaggeration; x and y let a model with
+  // a single row or column be squashed so it reads as the 1D profile it is
+  // rather than as a slab.
+  axisScale: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -58,7 +61,7 @@ fn vertexMain(input: VertexIn, @builtin(instance_index) layer: u32) -> VertexOut
   // This is the extrusion: xy comes from the flat footprint, z is fetched per
   // cell per layer. The 2D mesh is never expanded into a 3D one.
   let elevation = select(botElev[cell], topElev[cell], input.face < 0.5);
-  let world = vec3<f32>(input.position, elevation * frame.params.x);
+  let world = vec3<f32>(input.position, elevation) * frame.axisScale.xyz;
 
   var out: VertexOut;
   out.clipPosition = frame.viewProj * vec4<f32>(world, 1.0);

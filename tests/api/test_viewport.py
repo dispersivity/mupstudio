@@ -222,3 +222,12 @@ class TestTimeStride:
     def test_rejects_a_nonsense_budget(self) -> None:
         with pytest.raises(ValueError, match="positive"):
             time_stride(np.zeros((4, 2), dtype=np.float32), 0)
+
+
+class TestThinAxis:
+    """A normal grid must not offer the squash control."""
+
+    def test_a_full_grid_reports_no_thin_axis(self, client: TestClient) -> None:
+        body = client.get(f"/api/v1/datasets/demo{SMALL}").json()
+
+        assert body["thinAxis"] is None

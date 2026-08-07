@@ -52,6 +52,15 @@ export interface Viewport {
   setRange(min: number, max: number): void;
   setLogScale(enabled: boolean): void;
   setVerticalExaggeration(factor: number): void;
+  /**
+   * Scale the model along each world axis.
+   *
+   * Vertical exaggeration is the z component. The horizontal components exist
+   * for models with a single row or column, where a width chosen for tidy
+   * geometry (1 m is common) can be larger than the modelled length and makes
+   * a 1D column render as a slab.
+   */
+  setAxisScale(x: number, y: number, z: number): void;
   frameAll(): void;
   requestRender(): void;
   /**

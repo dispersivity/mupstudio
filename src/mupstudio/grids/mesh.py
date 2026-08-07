@@ -66,6 +66,30 @@ class DisvMesh:
             digest.update(np.ascontiguousarray(array).tobytes())
         return digest.hexdigest()[:16]
 
+    @property
+    def thin_axis(self) -> str | None:
+        """Which horizontal axis has only one cell across it, if either does.
+
+        A model discretised as a single row or column is a 1D or 2D profile, but
+        its width is a real number chosen by whoever built it — often 1 m,
+        because it makes hand-checking geometry easy. That width can exceed the
+        modelled length, so the profile renders as a slab. Reporting the thin
+        axis lets a client offer to squash it.
+        """
+        unique_x = len(np.unique(np.round(self.cell_centers[:, 0].astype(np.float64), 6)))
+        unique_y = len(np.unique(np.round(self.cell_centers[:, 1].astype(np.float64), 6)))
+
+        if unique_y == 1 and unique_x > 1:
+            return "y"
+        if unique_x == 1 and unique_y > 1:
+            return "x"
+        return None
+
+    def axis_extents(self) -> tuple[float, float, float]:
+        """World extent along x, y and z."""
+        xmin, ymin, zmin, xmax, ymax, zmax = self.bounds
+        return (xmax - xmin, ymax - ymin, zmax - zmin)
+
     def validate(self) -> None:
         """Check the invariants the renderer relies on."""
         if self.cell_offsets.shape != (self.ncpl + 1,):

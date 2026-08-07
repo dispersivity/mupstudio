@@ -10,6 +10,11 @@ export interface ViewSettings {
   autoRange: boolean;
   logScale: boolean;
   verticalExaggeration: number;
+  /**
+   * Scale applied to a single-cell-wide axis. 1 leaves the model at true
+   * proportions; smaller values thin it so a 1D or 2D profile reads as one.
+   */
+  thinAxisScale: number;
 }
 
 /**
@@ -165,6 +170,25 @@ export function ViewportInspector({
             aria-label="Vertical exaggeration"
           />
         </Field>
+
+        {catalog.thinAxis && (
+          <Field label={`Squash ${catalog.thinAxis} ${formatScale(settings.thinAxisScale)}`}>
+            <input
+              type="range"
+              min={-2}
+              max={0}
+              step={0.05}
+              value={Math.log10(settings.thinAxisScale)}
+              onChange={(event) => onChange({ thinAxisScale: 10 ** Number(event.target.value) })}
+              className="w-full accent-sky-400"
+              aria-label={`Squash ${catalog.thinAxis} axis`}
+            />
+            <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+              This grid is one cell across {catalog.thinAxis}. Squashing that axis makes the profile
+              readable without changing any values; the model itself is unchanged.
+            </p>
+          </Field>
+        )}
       </Section>
 
       <p className="mt-auto text-[10px] leading-relaxed text-zinc-600">
@@ -172,6 +196,11 @@ export function ViewportInspector({
       </p>
     </div>
   );
+}
+
+function formatScale(scale: number): string {
+  if (scale >= 0.999) return "off";
+  return `1/${Math.round(1 / scale)}`;
 }
 
 function rampPreview(name: ColormapName): string {
