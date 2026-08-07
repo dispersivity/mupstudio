@@ -24,6 +24,10 @@ class Stage:
     argv: list[str]
     name: str = ""
     env: dict[str, str] = field(default_factory=dict)
+    #: Text to feed the process on standard input. MODFLOW-2005 and PHT3D both
+    #: prompt for their name file rather than taking it as an argument, and a
+    #: process left waiting at that prompt never finishes.
+    stdin: str | None = None
 
 
 @dataclass

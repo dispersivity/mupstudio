@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
-from mupstudio.compile.compiler import CompileError, compile_project
+from mupstudio.compile.compiler import CompiledModel, CompileError, compile_project
 from mupstudio.engines.mf6rtm.chemistry import ChemistryError
 from mupstudio.engines.mf6rtm.reactive import ReactiveWriteError, write_reactive
 from mupstudio.engines.mf6rtm.writer import write_mf6
@@ -245,18 +245,15 @@ def write_project(path: str) -> dict[str, Any]:
     project = load_project(path)
     directory = Path(path)
 
-    if project.meta.engine != "mf6rtm":
-        raise HTTPException(
-            status_code=501,
-            detail=f"writing input for {project.meta.engine} is not implemented yet",
-        )
-
     try:
         model = compile_project(project, root=directory)
     except CompileError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     workdir = directory / "runs" / "latest"
+
+    if project.meta.engine == "pht3d":
+        return _write_pht3d(model, workdir)
     manifest = write_mf6(model, workdir)
 
     written = {
@@ -300,6 +297,32 @@ def write_project(path: str) -> dict[str, Any]:
         }
     )
     return written
+
+
+def _write_pht3d(model: CompiledModel, workdir: Path) -> dict[str, Any]:
+    """Write a PHT3D deck.
+
+    No equilibration step, unlike MF6RTM: PHT3D is told its component list
+    rather than deriving one, so the whole deck is written here and now.
+    """
+    from mupstudio.engines.pht3d.build import Pht3dBuildError, build_deck
+    from mupstudio.engines.pht3d.ordering import OrderingError
+    from mupstudio.engines.pht3d.ph_dat import PhDatError
+
+    try:
+        deck = build_deck(model, workdir)
+    except (Pht3dBuildError, PhDatError, OrderingError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    return {
+        "workdir": str(deck.workdir),
+        "files": deck.files,
+        "warnings": deck.warnings,
+        "flowName": "flow",
+        "transportName": "trans",
+        "reactive": True,
+        "components": [item.name for item in deck.components],
+    }
 
 
 def _is_reactive(project: Project) -> bool:
@@ -359,6 +382,9 @@ async def run_project(path: str) -> dict[str, Any]:
     settings = Settings.load()
     reactive = bool(written["reactive"])
 
+    if project.meta.engine == "pht3d":
+        return await _run_pht3d(project, workdir, written, settings)
+
     if reactive:
         # A reactive run is driven by mf6rtm, which steps MODFLOW through the
         # shared library and calls PHREEQC between steps. It looks for that
@@ -401,6 +427,83 @@ async def run_project(path: str) -> dict[str, Any]:
         "reactive": reactive,
         "components": written["components"],
     }
+
+
+async def _run_pht3d(
+    project: Project, workdir: Path, written: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
+    """Run a PHT3D model, which takes two programs rather than one.
+
+    MODFLOW-2005 solves the flow and writes the link file; PHT3D then reads that
+    and transports through it. They are separate executables, so the run is two
+    stages and the second is worth nothing without the first.
+    """
+    from mupstudio.doctor import find_executable
+
+    stages = []
+    for name, configured in (("mf2005", settings.mf2005_exe), ("pht3d", settings.pht3d_exe)):
+        found = find_executable(name, configured)
+        if found is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{name} was not found; run 'mupstudio get-engines --pht3d' or set "
+                    f"{name}_exe in settings"
+                ),
+            )
+        stages.append((name, str(found)))
+
+    warnings = list(written["warnings"])
+    warnings.extend(_stage_database(project, workdir))
+
+    runner = runner_instance()
+    record = await runner.submit(
+        JobSpec(
+            stages=[
+                # Both read their name file from standard input rather than
+                # from an argument, which is how these two programs have always
+                # been driven.
+                Stage(argv=[executable], name=name, stdin=f"{_name_file(name)}\n")
+                for name, executable in stages
+            ],
+            workdir=workdir,
+            engine="pht3d",
+            label=project.meta.name,
+            total_kper=project.time.nper,
+            expected_outputs=["*.hds", "PHT3D*.UCN", "*.ftl"],
+        )
+    )
+
+    return {
+        "runId": record.run_id,
+        "workdir": str(workdir),
+        "files": written["files"],
+        "warnings": warnings,
+        "reactive": True,
+        "components": written["components"],
+    }
+
+
+def _name_file(program: str) -> str:
+    return "flow.nam" if program == "mf2005" else "pht3d.nam"
+
+
+def _stage_database(project: Project, workdir: Path) -> list[str]:
+    """Copy the PHREEQC database next to the model, where PHT3D looks for it."""
+    import shutil
+
+    from mupstudio.chemdb import cache
+
+    name = project.chemistry.database.name
+    try:
+        index = cache.load_by_name(name)
+    except FileNotFoundError as error:
+        return [str(error)]
+
+    destination = workdir / Path(index.path).name
+    if not destination.exists():
+        shutil.copyfile(index.path, destination)
+    return []
 
 
 def _stage_solver_library(workdir: Path, settings: Settings) -> list[str]:

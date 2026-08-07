@@ -180,9 +180,11 @@ class TestWriting:
 
         assert response.status_code == 400
 
-    def test_writing_pht3d_says_it_is_not_implemented(
+    def test_a_pht3d_project_with_no_chemistry_says_why_it_cannot_be_written(
         self, client: TestClient, tmp_path: Path
     ) -> None:
+        """PHT3D exists to react. A new project has no chemistry yet, and the
+        message should point at that rather than at a missing feature."""
         created = client.post(
             "/api/v1/projects",
             json={"name": "pht", "engine": "pht3d", "parent": str(tmp_path / "pht")},
@@ -190,8 +192,41 @@ class TestWriting:
 
         response = client.post(f"/api/v1/projects/write?path={created['project']['path']}")
 
-        assert response.status_code == 501
-        assert "pht3d" in response.json()["detail"]
+        assert response.status_code == 422
+        assert "no chemistry" in response.json()["detail"]
+
+    def test_writing_a_pht3d_project_produces_a_runnable_deck(
+        self, client: TestClient, tmp_path: Path
+    ) -> None:
+        """Flow, transport and chemistry, plus the name file tying them together."""
+        from mupstudio.schema.project import Project
+        from mupstudio.schema.templates import starter_chemistry
+        from mupstudio.store import projectstore
+
+        created = client.post(
+            "/api/v1/projects",
+            json={"name": "pht", "engine": "pht3d", "parent": str(tmp_path / "pht")},
+        ).json()
+        path = created["project"]["path"]
+
+        base = projectstore.load(Path(path))
+        projectstore.save(
+            Path(path),
+            Project.model_validate(
+                {
+                    **base.model_dump(),
+                    "chemistry": starter_chemistry(database="pht3d_datab.dat").model_dump(),
+                }
+            ),
+        )
+
+        body = client.post(f"/api/v1/projects/write?path={path}").json()
+
+        assert body["reactive"] is True
+        assert body["components"][:2] == ["C(+4)", "Ca"]
+        assert {"pht3d.nam", "pht3d_ph.dat", "trans.btn", "trans.ssm", "flow.dis"} <= set(
+            body["files"]
+        )
 
 
 def test_a_hand_edited_project_opens_through_the_api(client: TestClient, project: str) -> None:

@@ -105,10 +105,20 @@ class LocalRunner(Runner):
             *stage.argv,
             cwd=str(spec.workdir),
             env=environment,
+            # Always a pipe, even with nothing to send: a program that prompts
+            # would otherwise read the terminal the server was started from,
+            # and wait there forever.
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             start_new_session=new_session,
         )
+        if process.stdin is not None:
+            if stage.stdin:
+                process.stdin.write(stage.stdin.encode())
+            # Closed either way, so a program expecting more input sees the end
+            # of it rather than blocking.
+            process.stdin.close()
         self._processes[run_id] = process
         self.registry.update(run_id, state="running", pid=process.pid)
         self._publish(run_id, ProgressEvent(kind="log", message=f"--- {stage.name} started"))
