@@ -19,10 +19,18 @@ from mupstudio.schema.common import (
     ZoneField,
     constant,
 )
-from mupstudio.schema.flow import CellRange, ConstantHeadPackage, FlowModel, WellPackage
+from mupstudio.schema.flow import (
+    ConstantHeadPackage,
+    FlowModel,
+    HeadEntry,
+    WellEntry,
+    WellPackage,
+)
 from mupstudio.schema.grid import AxisSpacing, LayerSpec, StructuredGrid, column_grid
 from mupstudio.schema.project import Project, ProjectMeta
+from mupstudio.schema.selection import CellList, CellRange
 from mupstudio.schema.transport import Dispersion, TransportModel
+from mupstudio.schema.zones import PropertyZone
 from mupstudio.store import projectstore, toml_io
 
 
@@ -35,8 +43,12 @@ def simple() -> Project:
             packages=[
                 ConstantHeadPackage(
                     id="inflow",
-                    cells=CellRange(layers=[1], rows=[1], columns=[1]),
-                    head=ConstantSeries(value=0.0),
+                    entries=[
+                        HeadEntry(
+                            cells=CellRange(layers=[1], rows=[1], columns=[1]),
+                            head=ConstantSeries(value=0.0),
+                        )
+                    ],
                 )
             ]
         ),
@@ -72,11 +84,32 @@ def elaborate() -> Project:
             packages=[
                 WellPackage(
                     id="injector",
-                    cells=CellRange(layers=[1, 2], rows=[1], columns=[2, 3]),
-                    rate=PerPeriodSeries(values=[0.0, -12.5]),
+                    entries=[
+                        WellEntry(
+                            label="Deep injector",
+                            cells=CellRange(layers=[1, 2], rows=[1], columns=[2, 3]),
+                            rate=PerPeriodSeries(values=[0.0, -12.5]),
+                        ),
+                        # A second entry at its own rate: the shape that a
+                        # package holding one selection could not express.
+                        WellEntry(
+                            label="Shallow injector",
+                            cells=CellList(indices=[(1, 2, 4), (1, 3, 4)]),
+                            rate=PerPeriodSeries(values=[-1.0, -2.0]),
+                        ),
+                    ],
                 )
             ]
         ),
+        zones=[
+            PropertyZone(
+                id="sand",
+                label="Upper sand",
+                color="#c8a95a",
+                cells=CellRange(layers=[1], rows=[1, 2], columns=[1, 2]),
+            ),
+            PropertyZone(id="clay", cells=CellList(indices=[(2, 1, 1), (2, 1, 2)])),
+        ],
         transport=TransportModel(
             porosity=ZoneField(default=0.3, values={"sand": 0.35, "clay": 0.05}),
             dispersion=Dispersion(longitudinal=constant(0.01), diffusion=constant(1e-9)),

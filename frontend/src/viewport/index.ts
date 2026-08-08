@@ -670,7 +670,11 @@ function attachPointerControls(
   let lastY = 0;
 
   const down = (event: PointerEvent) => {
-    dragging = event.button === 0 && !event.shiftKey ? "orbit" : "pan";
+    // Orbiting a flat view would tilt it back into a perspective-like oblique,
+    // which is exactly what the plan and section views exist to avoid. There,
+    // a left drag pans; the 3D view is the one that turns.
+    const orbits = event.button === 0 && !event.shiftKey && !camera.isFlat;
+    dragging = orbits ? "orbit" : "pan";
     lastX = event.clientX;
     lastY = event.clientY;
     canvas.setPointerCapture(event.pointerId);

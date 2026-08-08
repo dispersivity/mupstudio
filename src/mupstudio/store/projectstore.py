@@ -33,7 +33,7 @@ SUFFIX = ".mup"
 SECTIONS: dict[str, tuple[str, ...]] = {
     "project.toml": ("meta", "time"),
     "data.toml": ("data",),
-    "grid.toml": ("grid",),
+    "grid.toml": ("grid", "zones"),
     "flow.toml": ("flow",),
     "transport.toml": ("transport",),
     "chemistry.toml": ("chemistry",),

@@ -184,9 +184,12 @@ export function ModelPreview({
     };
   }, [field, catalog, status, datasetId]);
 
+  // `status` is a dependency because a save rebuilds the viewport from scratch,
+  // and a fresh one starts at its own defaults. Without it these settings are
+  // pushed once and silently lost the first time the project is edited.
   useEffect(() => {
     viewportRef.current?.setShowEdges(showEdges);
-  }, [showEdges]);
+  }, [showEdges, status]);
 
   // The slice and the camera move together: a plan view of one layer is only
   // legible from directly above, and a row section only from the front.
@@ -240,7 +243,7 @@ export function ModelPreview({
   const sparse = current !== undefined && current.setCells < (catalog?.ncells ?? 0);
   useEffect(() => {
     viewportRef.current?.setGhostAbsent(sparse);
-  }, [sparse, field]);
+  }, [sparse, field, status]);
 
   // Match the drawing buffer to the element, which changes size when the
   // surrounding form does.

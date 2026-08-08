@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from mupstudio.schema.common import PropertyField, constant
+from mupstudio.schema.common import PropertyField, ZoneField, constant
 
 
 class Dispersion(BaseModel):
@@ -54,3 +54,7 @@ class TransportModel(BaseModel):
     dispersion: Dispersion = Field(default_factory=Dispersion)
     advection_scheme: Literal["upstream", "central", "tvd"] = "tvd"
     dual_porosity: DualPorosity | None = None
+
+    def zoned_fields(self) -> list[tuple[str, ZoneField]]:
+        """The properties given per zone, so their zone names can be checked."""
+        return [("porosity", self.porosity)] if isinstance(self.porosity, ZoneField) else []

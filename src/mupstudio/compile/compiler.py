@@ -109,6 +109,9 @@ class CompiledModel:
     properties: dict[str, np.ndarray]
     boundaries: list[CompiledBoundary] = field(default_factory=list)
     chemistry: CompiledChemistry | None = None
+    # One zone number per cell, by position in the project's zone list. Zero
+    # where no zone covers the cell.
+    zones: np.ndarray | None = None
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -134,19 +137,44 @@ def compile_project(project: Project, *, root: Path | None = None) -> CompiledMo
     grid = _compile_grid(project.grid)
     warnings: list[str] = []
     properties = _compile_properties(project, grid, root=root, warnings=warnings)
-    boundaries = [_compile_boundary(package, project, grid) for package in project.flow.packages]
+    boundaries = [
+        _compile_boundary(package, project, grid, root=root) for package in project.flow.packages
+    ]
 
     return CompiledModel(
         project=project,
         grid=grid,
         properties=properties,
         boundaries=boundaries,
-        chemistry=_compile_chemistry(project, grid),
+        chemistry=_compile_chemistry(project, grid, root=root),
+        zones=_compile_zones(project, grid, root=root),
         warnings=warnings,
     )
 
 
-def _compile_chemistry(project: Project, grid: CompiledGrid) -> CompiledChemistry | None:
+def _compile_zones(project: Project, grid: CompiledGrid, *, root: Path | None) -> np.ndarray:
+    """Which zone won each cell, by position in the list, or 0 for none.
+
+    Kept even though the properties are already resolved, because "which zone
+    is this cell in" is a question the screen has to answer: it is what the
+    zone map draws and what a click reports. Recomputing it from the property
+    arrays is not possible once two zones share a value.
+    """
+    numbers = np.zeros(grid.shape, dtype=np.int32)
+
+    for number, zone in enumerate(project.zones, start=1):
+        cells = _cell_ids(zone.cells, project, grid, root=root)
+        if not cells:
+            continue
+        selection = tuple(np.array(axis) for axis in zip(*cells, strict=True))
+        numbers[selection] = number
+
+    return numbers
+
+
+def _compile_chemistry(
+    project: Project, grid: CompiledGrid, *, root: Path | None
+) -> CompiledChemistry | None:
     """Compositions and zones, as one assemblage number per cell.
 
     Zones are painted in order, so a later zone overwrites an earlier one where
@@ -185,12 +213,10 @@ def _compile_chemistry(project: Project, grid: CompiledGrid) -> CompiledChemistr
 
     for zone in chemistry.zones:
         numbers = numbers_for(zone.composition)
-        layers = [index - 1 for index in zone.cells.layers]
-        rows = [index - 1 for index in zone.cells.rows]
-        columns = [index - 1 for index in zone.cells.columns]
-        # An outer product of the three lists: the schema names a box, which is
-        # what a cell range means for a structured grid.
-        selection = np.ix_(layers, rows, columns)
+        cells = _cell_ids(zone.cells, project, grid, root=root)
+        if not cells:
+            continue
+        selection = tuple(np.array(axis) for axis in zip(*cells, strict=True))
         for block, number in numbers.items():
             assemblages[block][selection] = number
 
@@ -237,7 +263,7 @@ def _compile_properties(
     flow = project.flow.properties
 
     def resolve(name: str, spec: PropertyField) -> np.ndarray:
-        return _resolve_field(spec, grid, name=name, root=root, warnings=warnings)
+        return _resolve_field(spec, grid, name=name, project=project, root=root, warnings=warnings)
 
     properties = {
         "k": resolve("k", flow.k),
@@ -284,6 +310,7 @@ def _resolve_field(
     grid: CompiledGrid,
     *,
     name: str,
+    project: Project,
     root: Path | None,
     warnings: list[str],
 ) -> np.ndarray:
@@ -292,20 +319,45 @@ def _resolve_field(
         return np.full(grid.shape, spec.value, dtype=np.float64)
 
     if isinstance(spec, ZoneField):
-        # Zone geometry arrives with the map-based builder; until then a zone
-        # field resolves to its default and says so rather than failing, so a
-        # project written for later use still runs now.
-        if spec.values:
-            warnings.append(
-                f"{name} names {len(spec.values)} zone(s), but zone geometry is not "
-                f"supported yet; using the default {spec.default}"
-            )
-        return np.full(grid.shape, spec.default, dtype=np.float64)
+        return _paint_zones(spec, grid, name=name, project=project, root=root, warnings=warnings)
 
     if isinstance(spec, ArrayField):
         return _load_array(spec, grid, name=name, root=root)
 
     raise CompileError(f"unknown property kind for {name}: {spec!r}")
+
+
+def _paint_zones(
+    spec: ZoneField,
+    grid: CompiledGrid,
+    *,
+    name: str,
+    project: Project,
+    root: Path | None,
+    warnings: list[str],
+) -> np.ndarray:
+    """The default everywhere, then each zone painted over it in list order.
+
+    Later zones win where they overlap, which is what a layer list means in
+    every GIS and the only rule that can be predicted without reading anything.
+    A zone with no value for this property is skipped rather than defaulted:
+    the sand can have its own conductivity and take the model's porosity.
+    """
+    values = np.full(grid.shape, spec.default, dtype=np.float64)
+
+    for zone in project.zones:
+        if zone.id not in spec.values:
+            continue
+
+        cells = _cell_ids(zone.cells, project, grid, root=root)
+        if not cells:
+            warnings.append(f"{name}: zone {zone.id!r} covers no cells, so it changes nothing")
+            continue
+
+        layers, rows, columns = (np.array(axis) for axis in zip(*cells, strict=True))
+        values[layers, rows, columns] = spec.values[zone.id]
+
+    return values
 
 
 def _load_array(
@@ -336,14 +388,16 @@ def _load_array(
     )
 
 
-def _compile_boundary(package, project: Project, grid: CompiledGrid) -> CompiledBoundary:  # type: ignore[no-untyped-def]
-    """One package, as stress period data keyed by period index."""
-    nper = project.time.nper
-    cells = _cell_ids(package, grid)
+def _compile_boundary(  # type: ignore[no-untyped-def]
+    package, project: Project, grid: CompiledGrid, *, root: Path | None
+) -> CompiledBoundary:
+    """One package, as stress period data keyed by period index.
 
-    if package.kind == "recharge":
-        # Recharge is areal: one record per top-layer cell, or per named cell.
-        cells = cells or [(0, row, col) for row in range(grid.nrow) for col in range(grid.ncol)]
+    Every entry contributes its own records, so a WEL with six wells at six
+    rates writes six records per period and a CHD over an edge writes one per
+    cell of that edge. That is what a MODFLOW package file holds.
+    """
+    nper = project.time.nper
 
     # The values MODFLOW expects per record, in the order its input defines.
     value_fields = {
@@ -354,38 +408,114 @@ def _compile_boundary(package, project: Project, grid: CompiledGrid) -> Compiled
         "riv": ("stage", "conductance", "bottom"),
         "ghb": ("head", "conductance"),
     }[package.kind]
-    concentration = getattr(package, "concentration", None)
 
     # Solute-carrying boundaries carry the inflow concentration as an auxiliary
     # value. MODFLOW's SSM package reads it from there, and it is what mf6rtm
     # replaces per component in a reactive run.
     carries_solute = package.kind in SOLUTE_CARRYING
 
-    spd: dict[int, list[tuple[Any, ...]]] = {}
-    for period in range(nper):
-        values = tuple(_series_value(getattr(package, field), period) for field in value_fields)
-        if carries_solute:
-            aux = _series_value(concentration, period) if concentration is not None else 0.0
-            spd[period] = [(cell, *values, aux) for cell in cells]
-        else:
-            spd[period] = [(cell, *values) for cell in cells]
+    spd: dict[int, list[tuple[Any, ...]]] = {period: [] for period in range(nper)}
+    seen: set[tuple[int, int, int]] = set()
+
+    for position, entry in enumerate(package.entries, start=1):
+        cells = _cell_ids(entry.cells, project, grid, root=root)
+
+        if package.kind == "recharge" and not cells:
+            # Recharge is areal: the whole top of the model unless told which
+            # cells, which is the only boundary where that default is right.
+            cells = [(0, row, col) for row in range(grid.nrow) for col in range(grid.ncol)]
+
+        # Two entries claiming a cell would write two records for it. MODFLOW
+        # sums some packages and rejects others, so neither outcome is what
+        # anyone drew; the first entry keeps the cell and the clash is named.
+        kept = []
+        for cell in cells:
+            if cell in seen:
+                label = entry.label or f"entry {position}"
+                raise CompileError(
+                    f"in {package.id}, {label} claims cell "
+                    f"{cell[0] + 1},{cell[1] + 1},{cell[2] + 1}, which an earlier entry "
+                    "already has. A cell can only take one value per package."
+                )
+            seen.add(cell)
+            kept.append(cell)
+
+        concentration = getattr(entry, "concentration", None)
+        for period in range(nper):
+            values = tuple(_series_value(getattr(entry, field), period) for field in value_fields)
+            if carries_solute:
+                aux = _series_value(concentration, period) if concentration is not None else 0.0
+                spd[period].extend((cell, *values, aux) for cell in kept)
+            else:
+                spd[period].extend((cell, *values) for cell in kept)
 
     return CompiledBoundary(
         id=package.id, kind=package.kind, spd=spd, carries_solute=carries_solute
     )
 
 
-def _cell_ids(package, grid: CompiledGrid) -> list[tuple[int, int, int]]:  # type: ignore[no-untyped-def]
-    """Zero-based cell ids from the schema's one-based selection."""
-    selection = getattr(package, "cells", None)
+def _cell_ids(  # type: ignore[no-untyped-def]
+    selection, project: Project, grid: CompiledGrid, *, root: Path | None
+) -> list[tuple[int, int, int]]:
+    """Zero-based cell ids from any of the ways a selection can name cells."""
     if selection is None:
         return []
 
+    if selection.kind == "cells":
+        return [
+            (layer - 1, row - 1, column - 1)
+            for layer in selection.layers
+            for row in selection.rows
+            for column in selection.columns
+        ]
+
+    if selection.kind == "list":
+        return [(layer - 1, row - 1, column - 1) for layer, row, column in selection.indices]
+
+    return _cells_from_shape(selection, project, grid, root=root)
+
+
+def _cells_from_shape(  # type: ignore[no-untyped-def]
+    selection, project: Project, grid: CompiledGrid, *, root: Path | None
+) -> list[tuple[int, int, int]]:
+    """A shape's footprint, repeated down the layers it applies to.
+
+    Resolved here rather than stored, so refining the grid re-derives the cells
+    instead of leaving a stale list pointing at cells that have moved.
+    """
+    from mupstudio.grids.select import SelectionError, cells_under_shape
+
+    if root is None:
+        raise CompileError(
+            f"the selection from {selection.source!r} needs the project directory to "
+            "find the shape, and none was given"
+        )
+
+    source = next((item for item in project.data.sources if item.id == selection.source), None)
+    if source is None:
+        raise CompileError(f"no data source {selection.source!r} to select cells with")
+
+    if not isinstance(project.grid, StructuredGrid):
+        raise CompileError("selecting cells from a shape needs a structured grid")
+
+    try:
+        mask = cells_under_shape(
+            root, selection, source, project.grid, project_crs=project.meta.crs
+        )
+    except SelectionError as error:
+        raise CompileError(str(error)) from error
+
+    rows, columns = np.nonzero(mask)
+    if rows.size == 0:
+        raise CompileError(
+            f"{source.name} does not overlap the grid, so it selects no cells. "
+            "Check that the model's coordinate system matches the data."
+        )
+
     return [
-        (layer - 1, row - 1, column - 1)
+        (layer - 1, int(row), int(column))
         for layer in selection.layers
-        for row in selection.rows
-        for column in selection.columns
+        for row, column in zip(rows, columns, strict=True)
     ]
 
 

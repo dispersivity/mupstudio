@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from mupstudio.schema.common import Id, PropertyField, TimeSeries, constant
+from mupstudio.schema.common import Id, PropertyField, TimeSeries, ZoneField, constant
+
+# CellRange is re-exported because a boundary over a block of cells is still
+# how most of them are written, and it reads better next to the packages.
+from mupstudio.schema.selection import CellRange as CellRange
+from mupstudio.schema.selection import CellSelection
 
 
 class FlowProperties(BaseModel):
@@ -23,29 +28,37 @@ class FlowProperties(BaseModel):
         description="0 confined, 1 convertible. Confined is the usual choice for a column.",
     )
 
+    def zoned_fields(self) -> list[tuple[str, ZoneField]]:
+        """The properties given per zone, so their zone names can be checked."""
+        found = []
+        for name in ("k", "k33", "porosity", "specific_storage", "specific_yield", "starting_head"):
+            field = getattr(self, name)
+            if isinstance(field, ZoneField):
+                found.append((name, field))
+        return found
 
-class CellRange(BaseModel):
-    """Cells named by index, for grids drawn by hand rather than from GIS.
 
-    Indices are 1-based to match how MODFLOW input reads, since anyone checking
-    this against a listing file is counting from one.
+class BoundaryEntry(BaseModel):
+    """One group of cells inside a package, and the values that apply to them.
+
+    A MODFLOW boundary package is a list of records, not a single condition: a
+    WEL file holds every well in the model, each with its own rate, and a CHD
+    file can hold a west edge at one head and an east edge at another. A
+    package with only one selection and one rate could express neither, so the
+    package holds entries and each entry is one selection with its own values.
+
+    One entry over fifty cells writes fifty records sharing a value, which is
+    the common case; fifty entries of one cell each writes fifty records with
+    fifty values, which is the other one.
     """
 
-    kind: Literal["cells"] = "cells"
-    layers: list[int] = Field(min_length=1)
-    rows: list[int] = Field(min_length=1)
-    columns: list[int] = Field(min_length=1)
-
-
-CellSelection = Annotated[CellRange, Field(discriminator="kind")]
-
-
-class WellPackage(BaseModel):
-    """Injection or extraction at cells. Negative rate extracts."""
-
-    kind: Literal["well"] = "well"
-    id: Id
+    label: str = Field(default="", description="What this is, for the list. Optional.")
     cells: CellSelection
+
+
+class WellEntry(BoundaryEntry):
+    """Injection or extraction. Negative rate extracts."""
+
     rate: TimeSeries
     concentration: TimeSeries | None = Field(
         default=None,
@@ -56,16 +69,90 @@ class WellPackage(BaseModel):
     )
 
 
-class ConstantHeadPackage(BaseModel):
-    """Head held fixed. The usual inflow boundary for a column."""
+class HeadEntry(BoundaryEntry):
+    """A fixed head."""
 
-    kind: Literal["chd"] = "chd"
-    id: Id
-    cells: CellSelection
     head: TimeSeries
     concentration: TimeSeries | None = Field(
         default=None, description="Solute concentration of water entering here"
     )
+
+
+class DrainEntry(BoundaryEntry):
+    elevation: TimeSeries
+    conductance: TimeSeries
+
+
+class RiverEntry(BoundaryEntry):
+    stage: TimeSeries
+    conductance: TimeSeries
+    bottom: TimeSeries = Field(description="Streambed bottom elevation")
+    concentration: TimeSeries | None = Field(
+        default=None, description="Solute concentration of water entering from the river"
+    )
+
+
+class GeneralHeadEntry(BoundaryEntry):
+    head: TimeSeries
+    conductance: TimeSeries
+    concentration: TimeSeries | None = Field(
+        default=None, description="Solute concentration of water entering here"
+    )
+
+
+class RechargeEntry(BoundaryEntry):
+    rate: TimeSeries
+    concentration: TimeSeries | None = Field(
+        default=None, description="Solute concentration of the recharge"
+    )
+    # Recharge falls on the whole top of the model unless told otherwise, which
+    # is the only boundary where "everywhere" is the sensible default.
+    cells: CellSelection | None = None  # type: ignore[assignment]
+
+
+def _lift_legacy_entry(data: Any, fields: tuple[str, ...]) -> Any:
+    """Read a package written before packages held more than one thing.
+
+    Projects are hand-editable TOML that people keep, so an older file has to
+    keep opening. The old shape put one selection and one set of values
+    directly on the package; that is exactly one entry, so it becomes one.
+    """
+    if not isinstance(data, dict) or "entries" in data:
+        return data
+
+    if not any(field in data for field in ("cells", *fields)):
+        return data
+
+    data = dict(data)
+    entry = {field: data.pop(field) for field in ("cells", "label", *fields) if field in data}
+    data["entries"] = [entry]
+    return data
+
+
+class WellPackage(BaseModel):
+    """WEL. Injection and extraction wells, any number of them."""
+
+    kind: Literal["well"] = "well"
+    id: Id
+    entries: list[WellEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        return _lift_legacy_entry(data, ("rate", "concentration"))
+
+
+class ConstantHeadPackage(BaseModel):
+    """CHD. Cells whose head is held fixed. The usual inflow edge for a column."""
+
+    kind: Literal["chd"] = "chd"
+    id: Id
+    entries: list[HeadEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        return _lift_legacy_entry(data, ("head", "concentration"))
 
 
 class DrainPackage(BaseModel):
@@ -76,9 +163,12 @@ class DrainPackage(BaseModel):
 
     kind: Literal["drn"] = "drn"
     id: Id
-    cells: CellSelection
-    elevation: TimeSeries
-    conductance: TimeSeries
+    entries: list[DrainEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        return _lift_legacy_entry(data, ("elevation", "conductance"))
 
 
 class RiverPackage(BaseModel):
@@ -86,13 +176,12 @@ class RiverPackage(BaseModel):
 
     kind: Literal["riv"] = "riv"
     id: Id
-    cells: CellSelection
-    stage: TimeSeries
-    conductance: TimeSeries
-    bottom: TimeSeries = Field(description="Streambed bottom elevation")
-    concentration: TimeSeries | None = Field(
-        default=None, description="Solute concentration of water entering from the river"
-    )
+    entries: list[RiverEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        return _lift_legacy_entry(data, ("stage", "conductance", "bottom", "concentration"))
 
 
 class GeneralHeadPackage(BaseModel):
@@ -100,26 +189,25 @@ class GeneralHeadPackage(BaseModel):
 
     kind: Literal["ghb"] = "ghb"
     id: Id
-    cells: CellSelection
-    head: TimeSeries
-    conductance: TimeSeries
-    concentration: TimeSeries | None = Field(
-        default=None, description="Solute concentration of water entering here"
-    )
+    entries: list[GeneralHeadEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        return _lift_legacy_entry(data, ("head", "conductance", "concentration"))
 
 
 class RechargePackage(BaseModel):
-    """Areally distributed inflow at the top."""
+    """RCH. Areally distributed inflow at the top."""
 
     kind: Literal["recharge"] = "recharge"
     id: Id
-    rate: TimeSeries
-    concentration: TimeSeries | None = Field(
-        default=None, description="Solute concentration of the recharge"
-    )
-    cells: CellSelection | None = Field(
-        default=None, description="Where it applies; the whole top layer if omitted"
-    )
+    entries: list[RechargeEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy(cls, data: Any) -> Any:
+        return _lift_legacy_entry(data, ("rate", "concentration"))
 
 
 BoundaryPackage = Annotated[

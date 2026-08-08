@@ -56,7 +56,7 @@ class TestCreate:
             item for item in document(client, project)["flow"]["packages"] if item["id"] == "inflow"
         )
 
-        assert inflow["concentration"]["value"] > 0
+        assert inflow["entries"][0]["concentration"]["value"] > 0
 
     def test_rejects_an_unknown_engine(self, client: TestClient, tmp_path: Path) -> None:
         response = client.post(
@@ -91,7 +91,7 @@ class TestEditing:
     def test_the_summary_reflects_the_edit(self, client: TestClient, project: str) -> None:
         body = document(client, project)
         body["grid"]["columns"]["ncells"] = 12
-        body["flow"]["packages"][1]["cells"]["columns"] = [12]
+        body["flow"]["packages"][1]["entries"][0]["cells"]["columns"] = [12]
 
         result = save(client, project, body)
 
@@ -99,7 +99,7 @@ class TestEditing:
 
     def test_a_broken_cross_reference_is_refused(self, client: TestClient, project: str) -> None:
         body = document(client, project)
-        body["flow"]["packages"][1]["cells"]["columns"] = [9999]
+        body["flow"]["packages"][1]["entries"][0]["cells"]["columns"] = [9999]
 
         result = save(client, project, body)
 
@@ -129,7 +129,7 @@ class TestEditing:
     ) -> None:
         body = document(client, project)
         body["time"]["periods"].append(dict(body["time"]["periods"][0]))
-        body["flow"]["packages"][0]["rate"] = {"kind": "per_period", "values": [1.0]}
+        body["flow"]["packages"][0]["entries"][0]["rate"] = {"kind": "per_period", "values": [1.0]}
 
         result = save(client, project, body)
 

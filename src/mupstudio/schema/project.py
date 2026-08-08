@@ -17,7 +17,16 @@ from mupstudio.schema.common import Id, LengthUnit, TimeDiscretisation, TimeUnit
 from mupstudio.schema.flow import PACKAGE_NAMES, SOLUTE_CARRYING, FlowModel
 from mupstudio.schema.gis import DataModel
 from mupstudio.schema.grid import GridSpec, StructuredGrid
+from mupstudio.schema.selection import out_of_range
 from mupstudio.schema.transport import TransportModel
+from mupstudio.schema.zones import PropertyZone
+
+
+def _where(package_id: str, entry: object, position: int) -> str:
+    """Name the offending entry the way the screen shows it."""
+    label = getattr(entry, "label", "") or f"entry {position}"
+    return f"package {package_id!r} ({label})"
+
 
 # Bumped when a change cannot be read by the previous version. Migrations live
 # in schema/migrate.py and run on load.
@@ -67,6 +76,10 @@ class Project(BaseModel):
     transport: TransportModel = Field(default_factory=TransportModel)
     chemistry: ChemistryModel = Field(default_factory=ChemistryModel)
     run: RunOptions = Field(default_factory=RunOptions)
+    zones: list[PropertyZone] = Field(
+        default_factory=list,
+        description="Named regions of the grid, shared by flow and transport properties",
+    )
 
     @model_validator(mode="after")
     def _check_references(self) -> Project:
@@ -74,6 +87,7 @@ class Project(BaseModel):
         self._check_package_ids_are_unique()
         self._check_cells_are_inside_the_grid()
         self._check_series_match_the_stress_periods()
+        self._check_zone_references_resolve()
         self._check_engine_supports_features()
         self._check_chemistry_matches_the_model()
         return self
@@ -97,32 +111,61 @@ class Project(BaseModel):
         if not isinstance(self.grid, StructuredGrid):
             return
 
-        limits = {"layers": self.grid.nlay, "rows": self.grid.nrow, "columns": self.grid.ncol}
+        bounds = {"nlay": self.grid.nlay, "nrow": self.grid.nrow, "ncol": self.grid.ncol}
+
         for package in self.flow.packages:
-            selection = getattr(package, "cells", None)
-            if selection is None:
-                continue
-            for axis, limit in limits.items():
-                for index in getattr(selection, axis):
-                    if not 1 <= index <= limit:
-                        raise ValueError(
-                            f"package {package.id!r} refers to {axis[:-1]} {index}, "
-                            f"but the grid has {limit} (indices start at 1)"
-                        )
+            for position, entry in enumerate(package.entries, start=1):
+                bad = out_of_range(entry.cells, **bounds)
+                if bad:
+                    raise ValueError(f"{_where(package.id, entry, position)} refers to {bad}")
+
+        for zone in self.zones:
+            bad = out_of_range(zone.cells, **bounds)
+            if bad:
+                raise ValueError(f"zone {zone.id!r} refers to {bad}")
 
     def _check_series_match_the_stress_periods(self) -> None:
         nper = self.time.nper
         for package in self.flow.packages:
-            for name in ("rate", "head"):
-                series = getattr(package, name, None)
-                if series is None or series.kind != "per_period":
-                    continue
-                if len(series.values) != nper:
+            for position, entry in enumerate(package.entries, start=1):
+                for name in ("rate", "head", "stage", "elevation", "conductance", "bottom"):
+                    series = getattr(entry, name, None)
+                    if series is None or series.kind != "per_period":
+                        continue
+                    if len(series.values) != nper:
+                        raise ValueError(
+                            f"{_where(package.id, entry, position)} gives "
+                            f"{len(series.values)} values for {name}, but the model has "
+                            f"{nper} stress {'period' if nper == 1 else 'periods'}"
+                        )
+
+    def _check_zone_references_resolve(self) -> None:
+        """A property keyed by zone has to name zones this project has."""
+        known = {zone.id for zone in self.zones}
+        sources = [
+            *((f"flow.{name}", field) for name, field in self.flow.properties.zoned_fields()),
+            *((f"transport.{name}", field) for name, field in self.transport.zoned_fields()),
+        ]
+
+        for label, field in sources:
+            for zone_id in field.values:
+                if zone_id not in known:
+                    have = ", ".join(sorted(known)) or "none"
                     raise ValueError(
-                        f"package {package.id!r} gives {len(series.values)} values for "
-                        f"{name}, but the model has {nper} stress "
-                        f"{'period' if nper == 1 else 'periods'}"
+                        f"{label} gives a value for the zone {zone_id!r}, which this "
+                        f"project does not have (it has: {have})"
                     )
+
+        if not known:
+            return
+        for zone in self.zones:
+            if zone.cells.kind == "shape" and zone.cells.source not in {
+                source.id for source in self.data.sources
+            }:
+                raise ValueError(
+                    f"zone {zone.id!r} is drawn from the data source "
+                    f"{zone.cells.source!r}, which this project does not have"
+                )
 
     def _check_engine_supports_features(self) -> None:
         if self.transport.dual_porosity is not None and self.meta.engine == "mf6rtm":
@@ -148,15 +191,12 @@ class Project(BaseModel):
             )
 
         if isinstance(self.grid, StructuredGrid):
-            limits = {"layers": self.grid.nlay, "rows": self.grid.nrow, "columns": self.grid.ncol}
             for zone in chemistry.zones:
-                for axis, limit in limits.items():
-                    for index in getattr(zone.cells, axis):
-                        if not 1 <= index <= limit:
-                            raise ValueError(
-                                f"chemistry zone {zone.id!r} refers to {axis[:-1]} {index}, "
-                                f"but the grid has {limit} (indices start at 1)"
-                            )
+                bad = out_of_range(
+                    zone.cells, nlay=self.grid.nlay, nrow=self.grid.nrow, ncol=self.grid.ncol
+                )
+                if bad:
+                    raise ValueError(f"chemistry zone {zone.id!r} refers to {bad}")
 
         by_id = {package.id: package for package in self.flow.packages}
         for package_id in chemistry.boundary_solutions:

@@ -20,14 +20,16 @@ from mupstudio.schema.chemistry import (
 from mupstudio.schema.common import ConstantSeries, StressPeriod, TimeDiscretisation, constant
 from mupstudio.schema.flow import (
     BoundaryPackage,
-    CellRange,
     ConstantHeadPackage,
     FlowModel,
     FlowProperties,
+    HeadEntry,
+    WellEntry,
     WellPackage,
 )
 from mupstudio.schema.grid import column_grid
 from mupstudio.schema.project import Engine, Project, ProjectMeta
+from mupstudio.schema.selection import CellRange
 from mupstudio.schema.transport import Dispersion, TransportModel
 
 # Defaults chosen so a fresh project runs and shows something: a sand-like
@@ -65,14 +67,24 @@ def starter_column(
         packages = [
             WellPackage(
                 id="inflow",
-                cells=CellRange(layers=[1], rows=[1], columns=[1]),
-                rate=ConstantSeries(value=rate),
-                concentration=ConstantSeries(value=inflow_concentration),
+                entries=[
+                    WellEntry(
+                        label="Inflow",
+                        cells=CellRange(layers=[1], rows=[1], columns=[1]),
+                        rate=ConstantSeries(value=rate),
+                        concentration=ConstantSeries(value=inflow_concentration),
+                    )
+                ],
             ),
             ConstantHeadPackage(
                 id="outflow",
-                cells=CellRange(layers=[1], rows=[1], columns=[cells]),
-                head=ConstantSeries(value=0.0),
+                entries=[
+                    HeadEntry(
+                        label="Outflow",
+                        cells=CellRange(layers=[1], rows=[1], columns=[cells]),
+                        head=ConstantSeries(value=0.0),
+                    )
+                ],
             ),
         ]
 

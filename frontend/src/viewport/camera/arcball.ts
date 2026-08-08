@@ -22,6 +22,15 @@ export interface CameraState {
   fovY: number;
   near: number;
   far: number;
+  /**
+   * Perspective for the 3D view, orthographic for the flat ones.
+   *
+   * A plan view drawn in perspective is a lie a modeller has to correct for:
+   * cells near the middle look bigger than cells at the edge, columns taper,
+   * and two cells the same size do not measure the same on screen. Every other
+   * groundwater GUI draws plan and section flat for that reason.
+   */
+  projection: "perspective" | "orthographic";
 }
 
 export class ArcballCamera {
@@ -37,8 +46,20 @@ export class ArcballCamera {
       fovY: (50 * Math.PI) / 180,
       near: 0.1,
       far: 10_000,
+      projection: "perspective",
       ...initial,
     };
+  }
+
+  /**
+   * Half the world height the viewport spans, at the target plane.
+   *
+   * Derived from distance rather than held separately, so the two projections
+   * agree at the target and dolly means the same thing in both. Switching
+   * projection then changes how the model is drawn without changing its size.
+   */
+  private get halfHeight(): number {
+    return this.state.distance * Math.tan(this.state.fovY / 2);
   }
 
   get snapshot(): Readonly<CameraState> {
@@ -55,6 +76,10 @@ export class ArcballCamera {
    * is undefined there.
    */
   setOrientation(view: "plan" | "front" | "side" | "free") {
+    // The three named views are flat views of a slice; only the free view is
+    // looking at a solid, which is the only place perspective helps.
+    this.state.projection = view === "free" ? "perspective" : "orthographic";
+
     const almostVertical = Math.PI / 2 - 1e-3;
     if (view === "plan") {
       this.state.yaw = -Math.PI / 2;
@@ -70,6 +95,11 @@ export class ArcballCamera {
       this.state.yaw = -Math.PI / 4;
       this.state.pitch = 0.6;
     }
+  }
+
+  /** True in the plan and section views, where turning the model is not wanted. */
+  get isFlat(): boolean {
+    return this.state.projection === "orthographic";
   }
 
   setAspect(width: number, height: number) {
@@ -131,9 +161,17 @@ export class ArcballCamera {
   }
 
   viewProjection(): Float32Array {
-    const { target, fovY, near, far } = this.state;
+    const { target, fovY, near, far, projection: kind } = this.state;
     const view = mat4.lookAt(this.eye, target, [0, 0, 1]);
-    const projection = mat4.perspective(fovY, this.aspect, near, far);
+
+    // Orthographic is framed to span the same world height as the perspective
+    // frustum does at the target, so toggling does not resize the model.
+    const half = this.halfHeight;
+    const projection =
+      kind === "orthographic"
+        ? mat4.ortho(-half * this.aspect, half * this.aspect, -half, half, near, far)
+        : mat4.perspective(fovY, this.aspect, near, far);
+
     return mat4.multiply(projection, view) as Float32Array;
   }
 

@@ -31,6 +31,8 @@ from mupstudio.schema.flow import (
 )
 from mupstudio.schema.grid import AxisSpacing, LayerSpec, StructuredGrid, column_grid
 from mupstudio.schema.project import Project, ProjectMeta
+from mupstudio.schema.transport import TransportModel
+from mupstudio.schema.zones import PropertyZone
 
 
 def project(**overrides) -> Project:
@@ -130,18 +132,72 @@ class TestProperties:
 
         assert np.all(model.properties["transport_porosity"] == 0.4)
 
-    def test_a_zone_field_uses_its_default_and_says_so(self) -> None:
-        """Zone geometry arrives with the builder; until then this must not fail."""
+    def test_a_zone_paints_its_value_over_the_default(self) -> None:
         model = compile_project(
             project(
+                zones=[
+                    PropertyZone(id="sand", cells=CellRange(layers=[1], rows=[1], columns=[3, 4]))
+                ],
                 flow=FlowModel(
                     properties=FlowProperties(k=ZoneField(default=2.0, values={"sand": 9.0}))
-                )
+                ),
             )
         )
 
-        assert np.all(model.properties["k"] == 2.0)
-        assert any("zone" in warning for warning in model.warnings)
+        assert model.properties["k"][0, 0].tolist() == [2, 2, 9, 9, 2, 2, 2, 2, 2, 2]
+
+    def test_a_later_zone_wins_where_two_overlap(self) -> None:
+        """List order, the same rule a layer list follows in every GIS."""
+        model = compile_project(
+            project(
+                zones=[
+                    PropertyZone(
+                        id="sand", cells=CellRange(layers=[1], rows=[1], columns=[1, 2, 3])
+                    ),
+                    PropertyZone(id="lens", cells=CellRange(layers=[1], rows=[1], columns=[3, 4])),
+                ],
+                flow=FlowModel(
+                    properties=FlowProperties(
+                        k=ZoneField(default=2.0, values={"sand": 9.0, "lens": 0.1})
+                    )
+                ),
+            )
+        )
+
+        assert model.properties["k"][0, 0, 2] == 0.1
+
+    def test_a_zone_with_no_value_for_this_property_is_left_alone(self) -> None:
+        """The sand can have its own conductivity and the model's porosity."""
+        model = compile_project(
+            project(
+                zones=[
+                    PropertyZone(id="sand", cells=CellRange(layers=[1], rows=[1], columns=[3])),
+                    PropertyZone(id="clay", cells=CellRange(layers=[1], rows=[1], columns=[4])),
+                ],
+                flow=FlowModel(
+                    properties=FlowProperties(k=ZoneField(default=2.0, values={"sand": 9.0}))
+                ),
+            )
+        )
+
+        assert model.properties["k"][0, 0, 3] == 2.0
+
+    def test_zones_share_between_flow_and_transport(self) -> None:
+        """One outline, two properties. Two copies of it would drift apart."""
+        model = compile_project(
+            project(
+                zones=[PropertyZone(id="clay", cells=CellRange(layers=[1], rows=[1], columns=[5]))],
+                flow=FlowModel(
+                    properties=FlowProperties(k=ZoneField(default=2.0, values={"clay": 1e-4}))
+                ),
+                transport=TransportModel(
+                    porosity=ZoneField(default=0.3, values={"clay": 0.5}),
+                ),
+            )
+        )
+
+        assert model.properties["k"][0, 0, 4] == 1e-4
+        assert model.properties["transport_porosity"][0, 0, 4] == 0.5
 
     def test_a_zone_field_with_no_zones_warns_about_nothing(self) -> None:
         model = compile_project(

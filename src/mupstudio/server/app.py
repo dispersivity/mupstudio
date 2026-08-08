@@ -19,7 +19,15 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
 from mupstudio import __version__
-from mupstudio.server.routers import chemistry, gis, projects, runs, system, viewport
+from mupstudio.server.routers import (
+    chemistry,
+    gis,
+    projects,
+    runs,
+    selection,
+    system,
+    viewport,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "_static"
 
@@ -76,6 +84,7 @@ def create_app(*, dev: bool | None = None) -> FastAPI:
     app.include_router(projects.router, prefix="/api/v1")
     app.include_router(chemistry.router, prefix="/api/v1")
     app.include_router(gis.router, prefix="/api/v1")
+    app.include_router(selection.router, prefix="/api/v1")
     app.include_router(runs.router, prefix="/api/v1")
     app.include_router(viewport.router, prefix="/api/v1")
 

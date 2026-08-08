@@ -9,11 +9,16 @@ assemblages. Here the tuple is a named Composition, so a cell is assigned
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from mupstudio.schema.common import Id
+
+# CellRange is re-exported: chemistry used to define its own, and a zone is
+# still written as one in the common case.
+from mupstudio.schema.selection import CellRange as CellRange
+from mupstudio.schema.selection import CellSelection
 
 # Rows that describe the solution itself rather than a dissolved species.
 SOLUTION_META = ("pH", "pe", "temperature", "density", "water")
@@ -164,16 +169,10 @@ class Composition(BaseModel):
     gas_phase: Id | None = None
 
 
-class CellRange(BaseModel):
-    """Cells named by index, one-based, matching MODFLOW input."""
-
-    kind: Literal["cells"] = "cells"
-    layers: list[int] = Field(min_length=1)
-    rows: list[int] = Field(min_length=1)
-    columns: list[int] = Field(min_length=1)
-
-
-ChemSelection = Annotated[CellRange, Field(discriminator="kind")]
+# Chemistry points at cells the same way everything else does. A composition
+# painted over an imported polygon is the same operation as a conductivity zone
+# over that polygon, and there is no reason for two spellings of it.
+ChemSelection = CellSelection
 
 
 class ChemZone(BaseModel):

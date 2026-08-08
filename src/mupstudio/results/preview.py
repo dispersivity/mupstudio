@@ -46,6 +46,7 @@ PROPERTIES: dict[str, tuple[str, str]] = {
 # names it does not control.
 BOUNDARY_PREFIX = "boundary:"
 CHEMISTRY_PREFIX = "chemistry:"
+ZONE_FIELD = "zones"
 
 # What a cell with no value carries.
 #
@@ -214,6 +215,7 @@ def _build_fields(model: CompiledModel) -> dict[str, _Field]:
         if values is not None:
             fields[key] = _Field(values, label, kind="property", unit=unit)
 
+    fields.update(_zone_field(model))
     fields.update(_boundary_fields(model))
     fields.update(_chemistry_fields(model))
     return fields
@@ -283,6 +285,22 @@ def _chemistry_fields(model: CompiledModel) -> dict[str, _Field]:
         )
 
     return fields
+
+
+def _zone_field(model: CompiledModel) -> dict[str, _Field]:
+    """The zone map: which named region each cell fell into.
+
+    Drawn as the zone's position in the list, since the viewport colours by
+    number and the legend maps them back. Cells no zone covers are absent
+    rather than zero, so the shell shows through where nothing was painted.
+    """
+    numbers = model.zones
+    if numbers is None or not numbers.any():
+        return {}
+
+    values = numbers.astype(np.float64)
+    values[numbers == 0] = np.nan
+    return {ZONE_FIELD: _Field(values, label="Zones", kind="zone")}
 
 
 def preview_of(project: Project, *, root: Any = None) -> PreviewDataset:
