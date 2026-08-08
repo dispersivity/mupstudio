@@ -10,6 +10,10 @@ import {
 import { ModelPreview } from "@/preview/ModelPreview";
 import { FromBoundary } from "./grid/FromBoundary";
 import { useProjectDocument, type ProjectDocument } from "./editor/useProjectDocument";
+import { SurfaceValue, describeSurface } from "./editor/SurfaceValue";
+import { CellSelector } from "./editor/CellSelector";
+import { gridLimits } from "./editor/grid";
+import { toggleCell, type CellTriple } from "./editor/selection";
 
 type Tab = "domain" | "discretisation" | "layers";
 
@@ -39,6 +43,8 @@ export function GridStep({
 }) {
   const editor = useProjectDocument(path);
   const [tab, setTab] = useState<Tab>("domain");
+  // Whether clicks in the viewport are adding to the active-cell selection.
+  const [picking, setPicking] = useState(false);
 
   if (!path) return <NoProject onGo={onGoToProject} />;
   if (!editor.document) {
@@ -47,6 +53,15 @@ export function GridStep({
 
   const grid = editor.document.grid;
   const stranded = strandedBoundaries(editor.document);
+  // Imported data a surface can be sampled from, or an active-cell selection
+  // drawn from. Kept in the shape both controls take.
+  const sources = ((editor.document.data?.sources ?? []) as ProjectDocument[]).map((item) => ({
+    id: item.id as string,
+    name: item.name as string,
+    kind: item.kind as string,
+    geometry: item.geometry as string | undefined,
+    fields: (item.fields ?? []) as string[],
+  }));
 
   return (
     <EditorShell
@@ -66,6 +81,20 @@ export function GridStep({
           path={path}
           revision={editor.revision}
           initialField="strt"
+          picking={
+            picking && grid.active?.kind === "list"
+              ? {
+                  cells: (grid.active.indices ?? []) as CellTriple[],
+                  onToggle: (cell) =>
+                    editor.edit((draft) => {
+                      const selection = draft.grid.active;
+                      if (selection?.kind === "list") {
+                        selection.indices = toggleCell(selection.indices as CellTriple[], cell);
+                      }
+                    }),
+                }
+              : null
+          }
           className="h-full"
         />
       }
@@ -143,104 +172,113 @@ export function GridStep({
             title="Layers"
             hint="Each layer gives the elevation of its bottom. Sublayers split it into that many equal thicknesses."
           >
-            <div className="mb-3 grid max-w-md grid-cols-2 gap-3">
-              <Labelled label="Model top">
-                <NumberInput
-                  value={grid.top}
-                  label="Model top"
-                  onCommit={(value) => editor.edit((draft) => void (draft.grid.top = value))}
-                />
-              </Labelled>
+            <div className="mb-3 max-w-md">
+              <SurfaceValue
+                label="Model top"
+                surface={grid.top}
+                sources={sources}
+                allowOffset={false}
+                onChange={(value) => editor.edit((draft) => void (draft.grid.top = value))}
+              />
             </div>
 
-            <table className="w-full max-w-2xl text-xs">
-              <thead>
-                <tr className="text-left text-[10px] text-zinc-500">
-                  <th className="pb-1 font-normal">Name</th>
-                  <th className="pb-1 font-normal">Bottom</th>
-                  <th className="pb-1 font-normal">Sublayers</th>
-                  <th className="pb-1 font-normal">Thickness</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {grid.layers.map((layer: ProjectDocument, index: number) => {
-                  const above = index === 0 ? grid.top : grid.layers[index - 1].bottom;
-                  return (
-                    <tr key={index} className="border-t border-zinc-800">
-                      <td className="py-1 pr-3">
-                        <TextInput
-                          value={layer.name ?? ""}
-                          placeholder={`layer ${index + 1}`}
-                          label={`Layer ${index + 1} name`}
-                          onCommit={(value) =>
-                            editor.edit(
-                              (draft) => void (draft.grid.layers[index].name = value || null),
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="py-1 pr-3">
-                        <NumberInput
-                          value={layer.bottom}
-                          label={`Layer ${index + 1} bottom`}
-                          onCommit={(value) =>
-                            editor.edit((draft) => void (draft.grid.layers[index].bottom = value))
-                          }
-                        />
-                      </td>
-                      <td className="py-1 pr-3">
-                        <NumberInput
-                          value={layer.sublayers}
-                          min={1}
-                          step={1}
-                          label={`Layer ${index + 1} sublayers`}
-                          onCommit={(value) =>
-                            editor.edit(
-                              (draft) =>
-                                void (draft.grid.layers[index].sublayers = Math.max(
-                                  1,
-                                  Math.round(value),
-                                )),
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="py-1 pr-3 tabular-nums text-zinc-500">
-                        {(above - layer.bottom).toPrecision(4)}
-                      </td>
-                      <td className="py-1 text-right">
-                        <button
-                          type="button"
-                          disabled={grid.layers.length === 1}
-                          onClick={() =>
-                            editor.edit((draft) => void draft.grid.layers.splice(index, 1))
-                          }
-                          title={
-                            grid.layers.length === 1 ? "A model needs at least one layer" : "Remove"
-                          }
-                          className="text-[10px] text-zinc-500 hover:text-red-400 disabled:opacity-30"
-                        >
-                          remove
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <ul className="space-y-2">
+              {grid.layers.map((layer: ProjectDocument, index: number) => (
+                <li key={index} className="rounded border border-zinc-800 p-2">
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="w-4 shrink-0 text-[10px] text-zinc-600">{index + 1}</span>
+                    <TextInput
+                      value={layer.name ?? ""}
+                      placeholder={`layer ${index + 1}`}
+                      label={`Layer ${index + 1} name`}
+                      onCommit={(value) =>
+                        editor.edit((draft) => void (draft.grid.layers[index].name = value || null))
+                      }
+                    />
+                    <button
+                      type="button"
+                      disabled={grid.layers.length === 1}
+                      onClick={() =>
+                        editor.edit((draft) => void draft.grid.layers.splice(index, 1))
+                      }
+                      title={
+                        grid.layers.length === 1 ? "A model needs at least one layer" : "Remove"
+                      }
+                      className="ml-auto shrink-0 text-[10px] text-zinc-500 hover:text-red-400 disabled:opacity-30"
+                    >
+                      remove
+                    </button>
+                  </div>
+
+                  <SurfaceValue
+                    label="Bottom"
+                    surface={layer.bottom}
+                    sources={sources}
+                    onChange={(value) =>
+                      editor.edit((draft) => void (draft.grid.layers[index].bottom = value))
+                    }
+                  />
+
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <Labelled
+                      label="Sublayers"
+                      hint="Splits this unit into that many cells, each following both surfaces rather than sitting flat."
+                    >
+                      <NumberInput
+                        value={layer.sublayers}
+                        min={1}
+                        step={1}
+                        label={`Layer ${index + 1} sublayers`}
+                        onCommit={(value) =>
+                          editor.edit(
+                            (draft) =>
+                              void (draft.grid.layers[index].sublayers = Math.max(
+                                1,
+                                Math.round(value),
+                              )),
+                          )
+                        }
+                      />
+                    </Labelled>
+                    <Labelled
+                      label="Min thickness"
+                      hint="Keeps the layer at least this thick where the surfaces cross or it pinches out. The cells that had to be pushed down are reported after the grid is built."
+                    >
+                      <NumberInput
+                        value={layer.minimum_thickness ?? 0}
+                        min={0}
+                        label={`Layer ${index + 1} minimum thickness`}
+                        onCommit={(value) =>
+                          editor.edit(
+                            (draft) =>
+                              void (draft.grid.layers[index].minimum_thickness = Math.max(
+                                0,
+                                value,
+                              )),
+                          )
+                        }
+                      />
+                    </Labelled>
+                  </div>
+                </li>
+              ))}
+            </ul>
 
             <button
               type="button"
               onClick={() =>
                 editor.edit((draft) => {
+                  // A new layer repeats the one above it as a thickness, which
+                  // works whatever the surfaces above are: an offset needs no
+                  // elevations to be known, and elevations may be sampled.
                   const last = draft.grid.layers[draft.grid.layers.length - 1];
-                  const above = draft.grid.layers.length === 1 ? draft.grid.top : last.bottom;
-                  const thickness = Math.abs(above - last.bottom) || 1;
+                  const thickness =
+                    last?.bottom?.kind === "offset" ? (last.bottom.thickness ?? 10) : 10;
                   draft.grid.layers.push({
                     name: null,
-                    bottom: last.bottom - thickness,
+                    bottom: { kind: "offset", thickness },
                     sublayers: 1,
+                    minimum_thickness: 0,
                   });
                 })
               }
@@ -255,6 +293,63 @@ export function GridStep({
       {tab === "domain" && (
         <>
           <DomainPanel document={editor.document} edit={editor.edit} />
+
+          <Section
+            title="Active cells"
+            hint="Which cells are part of the model. Everything unless you say otherwise. A grid built to fit a catchment covers the rectangle around it, and without this the cells outside the catchment still take recharge, pass water and appear in the water balance."
+          >
+            {grid.active ? (
+              <div className="max-w-xl space-y-2">
+                <CellSelector
+                  selection={grid.active}
+                  limits={gridLimits(grid)}
+                  sources={sources}
+                  path={path}
+                  picking={picking}
+                  onPick={setPicking}
+                  onChange={(selection) =>
+                    editor.edit((draft) => void (draft.grid.active = selection))
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPicking(false);
+                    editor.edit((draft) => void (draft.grid.active = null));
+                  }}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                >
+                  use every cell
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  editor.edit((draft) => {
+                    const outline = sources.find(
+                      (item) => item.kind === "vector" && item.geometry === "polygon",
+                    );
+                    draft.grid.active = outline
+                      ? {
+                          kind: "shape",
+                          source: outline.id,
+                          layers: Array.from(
+                            { length: gridLimits(draft.grid).layers },
+                            (_, i) => i + 1,
+                          ),
+                          rule: "centroid",
+                          buffer: 0,
+                        }
+                      : { kind: "list", indices: [] };
+                  })
+                }
+                className="rounded border border-zinc-700 px-2 py-1 text-[10px] text-zinc-300 hover:border-zinc-600"
+              >
+                Limit the model to part of the grid
+              </button>
+            )}
+          </Section>
           {/* Reloaded rather than merged: building a grid writes it on the
               server, so what is on screen has to come back from there. The
               shell is told as well, or every other step keeps quoting the grid
@@ -560,10 +655,10 @@ function DomainPanel({
           <dt className="text-zinc-500">Along (y)</dt>
           <dd className="tabular-nums text-zinc-200">{height}</dd>
           <dt className="text-zinc-500">Top</dt>
-          <dd className="tabular-nums text-zinc-200">{grid.top}</dd>
+          <dd className="tabular-nums text-zinc-200">{describeSurface(grid.top)}</dd>
           <dt className="text-zinc-500">Base</dt>
           <dd className="tabular-nums text-zinc-200">
-            {grid.layers[grid.layers.length - 1]?.bottom ?? "\u2014"}
+            {describeSurface(grid.layers[grid.layers.length - 1]?.bottom)}
           </dd>
         </dl>
       </Section>
