@@ -219,36 +219,40 @@ export function TransportStep({
               Enable dual porosity
             </button>
           ) : (
-            <div className="flex max-w-lg items-end gap-4">
-              <Labelled label="Immobile porosity">
-                <NumberInput
-                  value={transport.dual_porosity.immobile_porosity.value}
+            <div className="max-w-lg space-y-3">
+              <div className="grid grid-cols-2 gap-4">
+                <PropertyValue
                   label="Immobile porosity"
-                  onCommit={(value) =>
-                    editor.edit((draft) => {
-                      draft.transport.dual_porosity.immobile_porosity = {
-                        kind: "constant",
-                        value,
-                      };
-                    })
+                  hint="The share of the pore space water does not flow through. It holds solute and gives it back slowly, which is what produces a long tail on a breakthrough curve."
+                  field={transport.dual_porosity.immobile_porosity}
+                  zones={zones}
+                  onChange={(next) =>
+                    editor.edit(
+                      (draft) => void (draft.transport.dual_porosity.immobile_porosity = next),
+                    )
                   }
                 />
-              </Labelled>
-              <Labelled label="Transfer rate">
-                <NumberInput
-                  value={transport.dual_porosity.transfer_rate.value}
+                <PropertyValue
                   label="Transfer rate"
-                  onCommit={(value) =>
-                    editor.edit((draft) => {
-                      draft.transport.dual_porosity.transfer_rate = { kind: "constant", value };
-                    })
+                  hint="How fast the two domains exchange, per unit time. Zero seals the immobile domain off entirely, and the model still runs."
+                  field={transport.dual_porosity.transfer_rate}
+                  zones={zones}
+                  onChange={(next) =>
+                    editor.edit(
+                      (draft) => void (draft.transport.dual_porosity.transfer_rate = next),
+                    )
                   }
                 />
-              </Labelled>
+              </div>
+              <p className="text-[10px] leading-relaxed text-zinc-600">
+                Written as MT3D&apos;s reaction package in dual-domain mode. The porosity above is
+                the immobile one; the transport porosity stays the mobile pore space, since the two
+                are separate.
+              </p>
               <button
                 type="button"
                 onClick={() => editor.edit((draft) => void (draft.transport.dual_porosity = null))}
-                className="pb-1 text-[10px] text-zinc-500 hover:text-red-400"
+                className="text-[10px] text-zinc-500 hover:text-red-400"
               >
                 disable
               </button>

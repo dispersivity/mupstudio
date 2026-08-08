@@ -337,6 +337,16 @@ def _compile_properties(
         else properties["porosity"].copy()
     )
 
+    # Dual porosity is two more property fields, resolved here like the rest so
+    # a writer never has to reach back into the schema for them.
+    if transport.dual_porosity is not None:
+        properties["immobile_porosity"] = resolve(
+            "immobile porosity", transport.dual_porosity.immobile_porosity
+        )
+        properties["transfer_rate"] = resolve(
+            "mass transfer rate", transport.dual_porosity.transfer_rate
+        )
+
     dispersion = transport.dispersion
     properties["alh"] = resolve("longitudinal dispersivity", dispersion.longitudinal)
     properties["diffc"] = resolve("diffusion", dispersion.diffusion)

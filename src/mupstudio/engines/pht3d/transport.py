@@ -172,6 +172,8 @@ def write_transport(
             ),
         )
 
+    _write_dual_porosity(mt, model, components, warnings)
+
     flopy.mt3d.Mt3dGcg(mt, mxiter=1, iter1=40, isolve=2, cclose=1e-11)
 
     mt.write_input()
@@ -242,6 +244,73 @@ def _floor(values: np.ndarray) -> np.ndarray:
     naturally types for "none of this here".
     """
     return np.maximum(np.asarray(values, dtype=np.float64), TRACE)
+
+
+def _write_dual_porosity(
+    mt: Any, model: CompiledModel, components: list[Component], warnings: list[str]
+) -> None:
+    """Split the pore space into a mobile and an immobile domain.
+
+    Where MT3DMS writes this is not obvious: dual porosity is not part of BTN
+    but a mode of the reaction package, `isothm=5`, whose porosity field is the
+    immobile one and whose second sorption parameter is the mass transfer rate
+    between the domains. BTN's own porosity stays the mobile porosity — the two
+    are separate pore spaces, and giving both the total would double the water
+    in the model.
+
+    Sorption is not simulated here (`isothm=5` rather than 6). PHT3D does its
+    chemistry through pht3d_ph.dat, and a sorption isotherm applied on top of
+    an exchange or surface assemblage would be counting the same process twice.
+    """
+    if model.project.transport.dual_porosity is None:
+        return
+
+    import flopy
+
+    immobile = model.properties["immobile_porosity"]
+    transfer = model.properties["transfer_rate"]
+
+    if float(np.max(immobile)) <= 0:
+        warnings.append(
+            "dual porosity is on but the immobile porosity is zero everywhere, so the "
+            "immobile domain holds no water and nothing will exchange with it"
+        )
+    if float(np.max(transfer)) <= 0:
+        warnings.append(
+            "dual porosity is on but the mass transfer rate is zero everywhere, so the "
+            "immobile domain never exchanges with the mobile one"
+        )
+
+    flopy.mt3d.Mt3dRct(
+        mt,
+        isothm=5,
+        ireact=0,
+        # The immobile concentrations start from the mobile ones rather than
+        # being read: PHT3D equilibrates both domains from pht3d_ph.dat, so a
+        # separate initial array here would be overwritten.
+        igetsc=0,
+        # One porosity per cell: the immobile fraction is a property of the
+        # material, not of what is dissolved in it.
+        prsity2=uniform_or_array(immobile),
+        sp1=0.0,
+        # The transfer rate, on the other hand, is dimensioned per species, and
+        # FloPy fills every species it is not given with zero. Passing one value
+        # leaves the model with a single component exchanging between domains
+        # and all the others sealed into the mobile one — which runs, and is
+        # wrong in a way nothing reports.
+        **_per_component("sp2", uniform_or_array(transfer), components),
+    )
+
+
+def _per_component(name: str, value: Any, components: list[Component]) -> dict[str, Any]:
+    """The keyword per species FloPy expects: ``sp2``, ``sp22``, ``sp23``, ...
+
+    The same shape as BTN's ``sconc``: the first component uses the bare name
+    and every later one appends its number.
+    """
+    return {
+        (name if index == 1 else f"{name}{index}"): value for index in range(1, len(components) + 1)
+    }
 
 
 def _mixelm(scheme: str, warnings: list[str]) -> int:

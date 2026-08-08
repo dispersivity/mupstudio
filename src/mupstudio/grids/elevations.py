@@ -210,7 +210,10 @@ def _from_raster(
             sample_x, sample_y = np.asarray(sample_x), np.asarray(sample_y)
 
         values = np.fromiter(
-            (item[surface.band - 1] for item in dataset.sample(zip(sample_x, sample_y, strict=True))),
+            (
+                item[surface.band - 1]
+                for item in dataset.sample(zip(sample_x, sample_y, strict=True))
+            ),
             dtype=np.float64,
             count=sample_x.size,
         )
