@@ -83,6 +83,11 @@ path = "hatch_build.py"
 [tool.hatch.build.targets.sdist]
 include = ["src/mupstudio", "frontend", "tests", "hatch_build.py", "LICENSE", "README.md"]
 
+# The sdist carries the built bundle too, so a wheel built from it needs no
+# node. See hatch_build.py; without this, `pip install mupstudio` runs pnpm.
+[tool.hatch.build.targets.sdist.hooks.custom]
+path = "hatch_build.py"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

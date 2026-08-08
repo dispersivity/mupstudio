@@ -50,10 +50,7 @@ export const SELECTION_MODES = [
 ];
 
 /** A one-based cell, from what the viewport's picker returns. */
-export function cellFromPick(
-  picked: { layer: number; cell: number },
-  columns: number,
-): CellTriple {
+export function cellFromPick(picked: { layer: number; cell: number }, columns: number): CellTriple {
   return [picked.layer + 1, Math.floor(picked.cell / columns) + 1, (picked.cell % columns) + 1];
 }
 

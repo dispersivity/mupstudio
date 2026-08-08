@@ -99,9 +99,7 @@ export function TransportStep({
                 field={transport.porosity}
                 inherited={flowPorosity}
                 zones={zones}
-                onChange={(next) =>
-                  editor.edit((draft) => void (draft.transport.porosity = next))
-                }
+                onChange={(next) => editor.edit((draft) => void (draft.transport.porosity = next))}
               />
             </div>
             <label className="flex items-center gap-1 pb-1 text-[10px] text-zinc-500">

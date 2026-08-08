@@ -57,8 +57,8 @@ export function ZoneList({
     <div className="space-y-2">
       {zones.length === 0 && (
         <p className="text-[11px] leading-relaxed text-zinc-600">
-          No zones yet. A zone is a named part of the grid — a stratigraphic unit, a fault block,
-          a contaminated area — that properties can be given per zone instead of one value for the
+          No zones yet. A zone is a named part of the grid — a stratigraphic unit, a fault block, a
+          contaminated area — that properties can be given per zone instead of one value for the
           whole model.
         </p>
       )}

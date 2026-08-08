@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  BOUNDARY_PACKAGES,
-  flowPackages,
-  PACKAGE_FOR_KIND,
-  transportPackages,
-} from "./packages";
+import { BOUNDARY_PACKAGES, flowPackages, PACKAGE_FOR_KIND, transportPackages } from "./packages";
 
 /**
  * The two engines are different stacks, not two spellings of one. Showing MF6

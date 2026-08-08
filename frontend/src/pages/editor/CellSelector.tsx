@@ -167,9 +167,9 @@ export function CellSelector({
               <span className="mb-0.5 flex items-center gap-1 text-[10px] text-zinc-500">
                 Rule
                 <Hint>
-                  Touches takes every cell the shape reaches, which is what a line or a point
-                  needs. Centre only takes cells whose middle it covers, which is what an area
-                  needs: a cell mostly outside a zone should not take the zone&apos;s properties.
+                  Touches takes every cell the shape reaches, which is what a line or a point needs.
+                  Centre only takes cells whose middle it covers, which is what an area needs: a
+                  cell mostly outside a zone should not take the zone&apos;s properties.
                 </Hint>
               </span>
               <Select
@@ -218,9 +218,7 @@ export function CellSelector({
 }
 
 type Resolved =
-  | { status: "loading" }
-  | { status: "ready"; count: number }
-  | { status: "failed"; detail: string };
+  { status: "loading" } | { status: "ready"; count: number } | { status: "failed"; detail: string };
 
 /**
  * How many cells a selection actually covers, asked of the server.

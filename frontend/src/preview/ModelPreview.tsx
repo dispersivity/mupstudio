@@ -210,8 +210,7 @@ export function ModelPreview({
     const cells = JSON.parse(pickedKey) as CellTriple[];
     return new Uint32Array(
       cells.map(
-        ([layer, row, column]) =>
-          (layer - 1) * rows * columns + (row - 1) * columns + (column - 1),
+        ([layer, row, column]) => (layer - 1) * rows * columns + (row - 1) * columns + (column - 1),
       ),
     );
   }, [pickedKey, catalog]);

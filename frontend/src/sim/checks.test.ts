@@ -73,7 +73,9 @@ describe("prerequisitesFor", () => {
 
   it("says when a run will be conservative rather than reactive", () => {
     const checks = prerequisitesFor(
-      detail({ chemistry: { enabled: false, database: "phreeqc.dat", solutions: 0, compositions: 0 } }),
+      detail({
+        chemistry: { enabled: false, database: "phreeqc.dat", solutions: 0, compositions: 0 },
+      }),
       null,
     );
     const chemistry = find(checks, "Chemistry");
@@ -84,7 +86,9 @@ describe("prerequisitesFor", () => {
 
   it("blocks chemistry that is on with nothing in it", () => {
     const checks = prerequisitesFor(
-      detail({ chemistry: { enabled: true, database: "phreeqc.dat", solutions: 0, compositions: 0 } }),
+      detail({
+        chemistry: { enabled: true, database: "phreeqc.dat", solutions: 0, compositions: 0 },
+      }),
       null,
     );
 

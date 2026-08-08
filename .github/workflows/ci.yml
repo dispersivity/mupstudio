@@ -136,13 +136,35 @@ jobs:
 
       - run: uv build
 
-      - name: assert the wheel carries the frontend
+      - name: assert both artifacts carry the frontend
         run: |
           set -euo pipefail
           wheel=$(ls dist/*.whl)
           unzip -l "$wheel" | grep -q 'mupstudio/_static/index.html'
           unzip -l "$wheel" | grep -qE 'mupstudio/_static/assets/.*\.js'
           echo "bundle present in $wheel"
+
+          # The sdist has to carry it too. `uv build` and `pip install .` build
+          # the wheel from the sdist, so a sdist without the bundle either
+          # produces a wheel without one or forces pnpm to run at install time.
+          sdist=$(ls dist/*.tar.gz)
+          tar tzf "$sdist" | grep -q 'src/mupstudio/_static/index.html'
+          echo "bundle present in $sdist"
+
+      - name: a wheel builds from the sdist with no node installed
+        run: |
+          set -euo pipefail
+          # The guarantee behind `pip install mupstudio` on a machine that has
+          # only Python: unpack the sdist, hide every node tool, build a wheel.
+          # If this needs pnpm, so does every user, and they will not have it.
+          mkdir -p /tmp/nonode && ln -sf "$(command -v uv)" /tmp/nonode/uv
+          rm -rf /tmp/unpacked && mkdir -p /tmp/unpacked
+          tar xzf dist/*.tar.gz -C /tmp/unpacked
+          cd /tmp/unpacked/mupstudio-*
+          env -u MUPSTUDIO_SKIP_FRONTEND_BUILD PATH=/tmp/nonode:/usr/bin:/bin HOME="$HOME" \
+            /tmp/nonode/uv build --wheel --out-dir /tmp/fromsdist .
+          unzip -l /tmp/fromsdist/*.whl | grep -q 'mupstudio/_static/index.html'
+          echo "sdist builds a complete wheel without node"
 
       - uses: actions/upload-artifact@v4
         with:

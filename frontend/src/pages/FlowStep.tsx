@@ -249,7 +249,9 @@ export function FlowStep({
                   inherited={flow.properties.k?.value ?? flow.properties.k?.default}
                   zones={zones as { id: string; label?: string }[]}
                   onAddZone={() => setTab("ZONES")}
-                  onChange={(next) => editor.edit((draft) => void (draft.flow.properties.k33 = next))}
+                  onChange={(next) =>
+                    editor.edit((draft) => void (draft.flow.properties.k33 = next))
+                  }
                 />
                 <label className="mt-1 flex items-center gap-1 text-[10px] text-zinc-500">
                   <input
@@ -435,8 +437,7 @@ export function FlowStep({
  * mean writing into a copy the editor has already replaced.
  */
 type PickTarget =
-  | { kind: "entry"; package: number; entry: number }
-  | { kind: "zone"; zone: number };
+  { kind: "entry"; package: number; entry: number } | { kind: "zone"; zone: number };
 
 function readSelection(document: ProjectDocument, target: PickTarget): ProjectDocument | null {
   if (target.kind === "zone") return document.zones?.[target.zone]?.cells ?? null;
