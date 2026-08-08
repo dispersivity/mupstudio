@@ -11,15 +11,37 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from mupstudio import __version__
 from mupstudio.server.routers import chemistry, gis, projects, runs, system, viewport
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "_static"
+
+
+class _Frontend(StaticFiles):
+    """The built frontend, served so an upgrade is actually picked up.
+
+    Asset file names carry a content hash, so those can be cached for as long
+    as the browser likes: a changed file is a different name. ``index.html`` is
+    the opposite — its name never changes and its whole job is to name the
+    current bundle. Cached, it keeps pointing at the bundle from before the
+    upgrade, and the app silently runs old code against a new server. That
+    looks like the new features simply not existing.
+    """
+
+    async def get_response(self, path: str, scope: Any) -> Response:
+        response = await super().get_response(path, scope)
+        if path in ("", ".", "index.html") or path.endswith("/index.html"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
@@ -67,6 +89,6 @@ def create_app(*, dev: bool | None = None) -> FastAPI:
         )
     elif static_bundle_available():
         # html=True makes unknown paths fall back to index.html for client routing.
-        app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+        app.mount("/", _Frontend(directory=STATIC_DIR, html=True), name="static")
 
     return app

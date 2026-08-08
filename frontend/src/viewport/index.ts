@@ -21,6 +21,11 @@ import type {
   ViewportOptions,
 } from "./types";
 
+// How far edges are pulled toward the camera, in normalised device depth.
+// Large enough to clear the rounding error that makes a wireframe dashed, small
+// enough that an edge never shows through the cell in front of it.
+const EDGE_DEPTH_NUDGE = 2e-4;
+
 const FRAME_UNIFORM_FLOATS = 16 + 4 + 4 + 4 + 4; // viewProj, params, gridInfo, axisScale, slice
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
 // Cell identities are rendered to this format: 32-bit unsigned holds any grid
@@ -125,6 +130,10 @@ export async function createViewport(
     vertex: {
       module,
       entryPoint: "vertexMain",
+      // Edges sit exactly on the faces they outline. Without this the two
+      // depths differ only by rounding, so a line wins the depth test on some
+      // pixels and loses on others, and the wireframe comes out dashed.
+      constants: { depthNudge: EDGE_DEPTH_NUDGE },
       buffers: [
         {
           arrayStride: FLOATS_PER_VERTEX * 4,
@@ -141,9 +150,6 @@ export async function createViewport(
     depthStencil: {
       format: DEPTH_FORMAT,
       depthWriteEnabled: false,
-      // Edges sit on the faces they outline, so a plain less test would make
-      // them fight the surface. Comparing less-or-equal with a small bias in
-      // the pass order keeps them visible without a depth offset.
       depthCompare: "less-equal",
     },
   });

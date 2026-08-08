@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Hint } from "./Hint";
 import type { FieldProblem } from "./useProjectDocument";
 
 /** The frame every editor step shares: a title, a save button, and problems. */
@@ -41,9 +42,9 @@ export function EditorShell({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-4">
-        <div>
+        <div className="flex items-center gap-1.5">
           <h2 className="text-sm font-medium text-zinc-100">{title}</h2>
-          <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-zinc-500">{blurb}</p>
+          <Hint>{blurb}</Hint>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {savedSummary && !dirty && <span className="text-[10px] text-emerald-400">saved</span>}
@@ -124,8 +125,12 @@ export function Section({
 }) {
   return (
     <section className="mb-7" onFocusCapture={field && onShow ? () => onShow(field) : undefined}>
-      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{title}</h3>
-      {hint && <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-zinc-600">{hint}</p>}
+      <div className="flex items-center gap-1.5">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          {title}
+        </h3>
+        {hint && <Hint>{hint}</Hint>}
+      </div>
       <div className="mt-2">{children}</div>
     </section>
   );
@@ -142,9 +147,11 @@ export function Labelled({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] text-zinc-500">{label}</span>
+      <span className="mb-1 flex items-center gap-1 text-[10px] text-zinc-500">
+        {label}
+        {hint && <Hint>{hint}</Hint>}
+      </span>
       {children}
-      {hint && <span className="mt-1 block text-[10px] text-zinc-600">{hint}</span>}
     </label>
   );
 }

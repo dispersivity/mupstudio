@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ViewportHost } from "@/viewport-host/ViewportHost";
 import { fetchDatasetListing } from "@/net/viewportClient";
 import { projects } from "@/net/projectClient";
+import { remembered } from "./remembered";
 import type { DatasetListing } from "@/results/DatasetPicker";
 import { ProjectStep, type ActiveProject } from "@/pages/ProjectStep";
 import { GridStep } from "@/pages/GridStep";
@@ -29,12 +30,37 @@ export interface AppShellProps {
  * contents. Steps that do not exist yet say so.
  */
 export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
-  const [active, setActive] = useState<StepId>("results");
+  // Where you were, not where the app happens to start. Reloading is something
+  // people do constantly while building a model, and landing on Results every
+  // time — with the project closed — makes a reload feel like starting over.
+  const [active, setActive] = useState<StepId>(() => remembered.step());
   const [railExpanded, setRailExpanded] = useState(true);
   const [inspector, setInspector] = useState<React.ReactNode>(null);
   const [listing, setListing] = useState<DatasetListing | null>(null);
   const [datasetId, setDatasetId] = useState("demo");
   const [project, setProject] = useState<ActiveProject | null>(null);
+
+  // Reopen what was open. Only the path is remembered, so the project itself
+  // still comes from disk and a reload cannot show a stale copy of it.
+  useEffect(() => {
+    const path = remembered.project();
+    if (!path) return;
+    projects
+      .open(path)
+      .then(({ project: summary, detail }) => setProject({ summary, detail }))
+      // Gone or moved: forget it rather than showing an error on every load.
+      .catch(() => remembered.setProject(null));
+  }, []);
+
+  const openProject = (next: ActiveProject | null) => {
+    setProject(next);
+    remembered.setProject(next?.summary.path ?? null);
+  };
+
+  const goTo = (step: StepId) => {
+    setActive(step);
+    remembered.setStep(step);
+  };
 
   const refreshDatasets = () =>
     fetchDatasetListing()
@@ -78,7 +104,7 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
         active={active}
         statuses={statuses}
         expanded={railExpanded}
-        onSelect={setActive}
+        onSelect={goTo}
         onToggleExpanded={() => setRailExpanded((value) => !value)}
       />
 
@@ -103,57 +129,57 @@ export function AppShell({ ncpl, nlay, ntimes }: AppShellProps) {
                 onSelectDataset={setDatasetId}
               />
             ) : active === "project" ? (
-              <ProjectStep active={project} onOpen={setProject} />
+              <ProjectStep active={project} onOpen={openProject} />
             ) : active === "data" ? (
               <DataStep
                 path={project?.summary.path ?? null}
-                onGoToProject={() => setActive("project")}
+                onGoToProject={() => goTo("project")}
                 onSaved={refreshProject}
               />
             ) : active === "grid" ? (
               <GridStep
                 path={project?.summary.path ?? null}
-                onGoToProject={() => setActive("project")}
+                onGoToProject={() => goTo("project")}
                 onSaved={refreshProject}
               />
             ) : active === "time" ? (
               <TimeStep
                 path={project?.summary.path ?? null}
-                onGoToProject={() => setActive("project")}
+                onGoToProject={() => goTo("project")}
                 onSaved={refreshProject}
               />
             ) : active === "flow" ? (
               <FlowStep
                 path={project?.summary.path ?? null}
-                onGoToProject={() => setActive("project")}
+                onGoToProject={() => goTo("project")}
                 onSaved={refreshProject}
               />
             ) : active === "transport" ? (
               <TransportStep
                 path={project?.summary.path ?? null}
-                onGoToProject={() => setActive("project")}
+                onGoToProject={() => goTo("project")}
                 onSaved={refreshProject}
               />
             ) : active === "chemistry" ? (
               <ChemistryStep
                 path={project?.summary.path ?? null}
-                onGoToProject={() => setActive("project")}
+                onGoToProject={() => goTo("project")}
                 onSaved={refreshProject}
               />
             ) : active === "simulate" ? (
               <SimulateStep
                 project={project}
-                onGoToProject={() => setActive("project")}
+                onGoToProject={() => goTo("project")}
                 onFinished={(runId) => {
                   // Show the run that just finished, so a completed model is
                   // one click from the picture of it.
                   void refreshDatasets();
                   setDatasetId(runId);
-                  setActive("results");
+                  goTo("results");
                 }}
               />
             ) : (
-              <StepPlaceholder step={active} onGoToResults={() => setActive("results")} />
+              <StepPlaceholder step={active} onGoToResults={() => goTo("results")} />
             )}
           </main>
 

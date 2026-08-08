@@ -258,7 +258,7 @@ def set_basemap(path: str, basemap: str | None = None) -> dict[str, Any]:
             status_code=409,
             detail=(
                 "this model has no coordinate system, so there is nowhere on Earth to "
-                "draw it. Set one on the Grid step, under Domain."
+                "draw it. Set one on the Project step."
             ),
         )
 

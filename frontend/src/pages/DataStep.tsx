@@ -14,6 +14,7 @@ import {
 } from "@/data/dataClient";
 import { MapView } from "@/data/MapView";
 import { NoProject } from "./editor/controls";
+import { Hint } from "./editor/Hint";
 
 /**
  * Spatial data brought into the project, on a map.
@@ -137,14 +138,12 @@ export function DataStep({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-4">
-        <div>
-          <h2 className="text-sm font-medium text-zinc-100">Data</h2>
-          <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-zinc-500">
-            What the model is built from: a boundary to fill with cells, rivers to refine toward,
-            wells to place, terrain to drape over. Shapefiles, GeoJSON, GeoTIFF and CSV.
-          </p>
-        </div>
+      <div className="flex items-center gap-1.5 border-b border-zinc-800 px-6 py-3">
+        <h2 className="text-sm font-medium text-zinc-100">Data</h2>
+        <Hint>
+          What the model is built from: a boundary to fill with cells, rivers to refine toward,
+          wells to place, terrain to drape over. Shapefiles, GeoJSON, GeoTIFF and CSV.
+        </Hint>
       </div>
 
       {(error || warnings.length > 0) && (
@@ -230,7 +229,8 @@ export function DataStep({
             {!georeferenced && (
               <p className="mb-4 rounded border border-amber-900 bg-amber-950/30 p-2 text-[11px] leading-relaxed text-amber-200">
                 This model has no coordinate system, so it cannot be put on a map. Set one on the
-                Grid step, under Domain. Data can still be imported; it just has nowhere to go.
+                Project step, under &ldquo;this model is somewhere real&rdquo;. Data can still be
+                imported; it just has nowhere to go.
               </p>
             )}
 

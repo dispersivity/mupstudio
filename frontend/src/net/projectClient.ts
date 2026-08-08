@@ -100,6 +100,17 @@ export const projects = {
   detail: (path: string) =>
     request<ProjectDetail>(`/projects/detail?path=${encodeURIComponent(path)}`),
 
+  /** Change the project's identity: where it is, what it is called. */
+  setMeta: (path: string, body: { crs?: string; description?: string }, clearCrs = false) =>
+    request<ProjectDetail>(
+      `/projects/meta?path=${encodeURIComponent(path)}${clearCrs ? "&clear_crs=true" : ""}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ),
+
   validate: (path: string) =>
     request<ValidationResult>(`/projects/validate?path=${encodeURIComponent(path)}`, {
       method: "POST",

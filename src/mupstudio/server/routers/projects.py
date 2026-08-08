@@ -198,6 +198,38 @@ def describe(project: Project) -> dict[str, Any]:
     }
 
 
+class MetaPatch(BaseModel):
+    """The few identity fields worth changing without opening an editor."""
+
+    crs: str | None = None
+    description: str | None = None
+
+
+@router.patch("/projects/meta")
+def update_meta(path: str, body: MetaPatch, clear_crs: bool = False) -> dict[str, Any]:
+    """Change what a project is, as opposed to what is in it.
+
+    The coordinate system lives here because it is asked for before anything is
+    imported, and because it is a statement about the model rather than about
+    its discretisation. ``clear_crs`` is separate from sending null: the two are
+    indistinguishable in JSON, and "leave it alone" and "this model is nowhere"
+    are different instructions.
+    """
+    project = load_project(path)
+    changes: dict[str, Any] = {}
+
+    if clear_crs:
+        changes["crs"] = None
+    elif body.crs is not None:
+        changes["crs"] = body.crs.strip() or None
+    if body.description is not None:
+        changes["description"] = body.description
+
+    updated = project.model_copy(update={"meta": project.meta.model_copy(update=changes)})
+    projectstore.save(Path(path), updated)
+    return describe(updated)
+
+
 @router.get("/projects/document")
 def read_document(path: str) -> dict[str, Any]:
     """The whole project, as the editors read and write it.

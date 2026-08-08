@@ -37,6 +37,20 @@ struct Frame {
 // Swapped per timestep. Its own group so changing time rebinds one thing.
 @group(1) @binding(0) var<storage, read> scalars: array<f32>;
 
+/**
+ * How far to pull a vertex toward the camera, in normalised device depth.
+ *
+ * Zero for the surfaces; small and positive for the pass that outlines them.
+ * An edge sits exactly on the face it outlines, so the two compute depths that
+ * differ only by floating-point error — a line rasterised across a triangle
+ * wins the depth test on some pixels and loses on others, which is what makes
+ * a wireframe look dashed and blurry rather than absent.
+ *
+ * Not `depthBias`: WebGPU applies that to triangle topology only, and these are
+ * lines.
+ */
+override depthNudge: f32 = 0.0;
+
 struct VertexIn {
   @location(0) position: vec2<f32>,
   // Cell index within a layer. u32 in spirit; f32 keeps the attribute layout
@@ -113,6 +127,9 @@ fn vertexMain(input: VertexIn, @builtin(instance_index) layer: u32) -> VertexOut
     return out;
   }
   out.clipPosition = frame.viewProj * vec4<f32>(world, 1.0);
+  // Scaled by w so the shift is constant after the perspective divide rather
+  // than shrinking with distance.
+  out.clipPosition.z -= depthNudge * out.clipPosition.w;
   out.value = scalars[cell];
 
   // Flat faces get a fixed shade so the prisms read as solid without normals.

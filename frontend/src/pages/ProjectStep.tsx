@@ -59,7 +59,13 @@ export function ProjectStep({
         </div>
       )}
 
-      {active && <ActiveSummary project={active} />}
+      {active && (
+        <ActiveSummary
+          project={active}
+          onChanged={(detail) => onOpen({ ...active, detail })}
+          onError={setError}
+        />
+      )}
 
       <NewProjectForm
         busy={busy}
@@ -87,7 +93,15 @@ export function ProjectStep({
   );
 }
 
-function ActiveSummary({ project }: { project: ActiveProject }) {
+function ActiveSummary({
+  project,
+  onChanged,
+  onError,
+}: {
+  project: ActiveProject;
+  onChanged: (detail: ProjectDetail) => void;
+  onError: (message: string) => void;
+}) {
   const { detail } = project;
   return (
     <section className="rounded border border-sky-900 bg-sky-950/30 p-4">
@@ -111,8 +125,103 @@ function ActiveSummary({ project }: { project: ActiveProject }) {
           }
         />
       </dl>
+
+      <CoordinateSystem project={project} onChanged={onChanged} onError={onError} />
+
       <p className="mt-3 truncate text-[10px] text-zinc-600">{project.summary.path}</p>
     </section>
+  );
+}
+
+/**
+ * Where an open project is, changeable here.
+ *
+ * The same question the new-project form asks, kept in the same place for a
+ * project that already exists — because it is asked before Data, and because
+ * "where is this model" is a fact about the project rather than about its
+ * discretisation.
+ */
+function CoordinateSystem({
+  project,
+  onChanged,
+  onError,
+}: {
+  project: ActiveProject;
+  onChanged: (detail: ProjectDetail) => void;
+  onError: (message: string) => void;
+}) {
+  const current = project.detail.data?.crs ?? null;
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(current ?? "EPSG:32719");
+  const [busy, setBusy] = useState(false);
+
+  const apply = async (crs: string | null) => {
+    setBusy(true);
+    try {
+      onChanged(
+        await projects.setMeta(project.summary.path, crs === null ? {} : { crs }, crs === null),
+      );
+      setEditing(false);
+    } catch (problem) {
+      onError((problem as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div className="mt-3 flex items-center gap-2 text-xs">
+        <span className="text-zinc-500">Coordinates</span>
+        <span className={current ? "font-mono text-zinc-200" : "text-zinc-500"}>
+          {current ?? "nowhere in particular"}
+        </span>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-[10px] text-sky-400 hover:text-sky-300"
+        >
+          change
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <input
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder="EPSG:32719"
+        aria-label="Coordinate reference system"
+        className="w-40 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-100"
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void apply(value.trim() || null)}
+        className="rounded bg-sky-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-sky-500 disabled:opacity-40"
+      >
+        Set
+      </button>
+      {current && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void apply(null)}
+          className="text-[10px] text-zinc-500 hover:text-zinc-300"
+        >
+          this model is nowhere
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setEditing(false)}
+        className="text-[10px] text-zinc-600 hover:text-zinc-400"
+      >
+        cancel
+      </button>
+    </div>
   );
 }
 
