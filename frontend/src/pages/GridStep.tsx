@@ -8,6 +8,7 @@ import {
   TextInput,
 } from "./editor/controls";
 import { ModelPreview } from "@/preview/ModelPreview";
+import { FromBoundary } from "./grid/FromBoundary";
 import { useProjectDocument, type ProjectDocument } from "./editor/useProjectDocument";
 
 type Tab = "domain" | "discretisation" | "layers";
@@ -251,7 +252,22 @@ export function GridStep({
         </>
       )}
 
-      {tab === "domain" && <DomainPanel document={editor.document} edit={editor.edit} />}
+      {tab === "domain" && (
+        <>
+          <DomainPanel document={editor.document} edit={editor.edit} />
+          {/* Reloaded rather than merged: building a grid writes it on the
+              server, so what is on screen has to come back from there. The
+              shell is told as well, or every other step keeps quoting the grid
+              this one just replaced. */}
+          <FromBoundary
+            path={path}
+            onApplied={() => {
+              void editor.reload();
+              onSaved();
+            }}
+          />
+        </>
+      )}
     </EditorShell>
   );
 }

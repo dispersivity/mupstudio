@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { projects } from "@/net/projectClient";
-import { TERMINAL_STATES, type RunState } from "@/net/projectClient";
+import {
+  TERMINAL_STATES,
+  type RunState,
+  type ValidationResult,
+  type WriteResult,
+} from "@/net/projectClient";
 import { useRunSession } from "@/state/runSession";
+import { prerequisitesFor } from "@/sim/checks";
+import { Outcome, Prerequisites } from "@/sim/Prerequisites";
 import { NoProject } from "./editor/controls";
 import type { ActiveProject } from "./ProjectStep";
 
@@ -25,6 +32,9 @@ export function SimulateStep({
   onGoToProject: () => void;
 }) {
   const session = useRunSession();
+  // Only to distinguish "written just now" from "written earlier in this
+  // session", so the outcome line does not claim credit for an old write.
+  const [wroteAt, setWroteAt] = useState<number | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [preview, setPreview] = useState<{
     name: string;
@@ -70,6 +80,7 @@ export function SimulateStep({
   const write = () =>
     guard("write", async () => {
       const result = await projects.write(path);
+      setWroteAt(Date.now());
       session.setWritten(result);
       // The discretisation file is what people check first.
       const first = result.files.find((name) => name.endsWith(".dis")) ?? result.files[0];
@@ -83,7 +94,9 @@ export function SimulateStep({
         workdir: started.workdir,
         files: started.files,
         warnings: started.warnings,
+        components: started.components,
       });
+      setWroteAt(Date.now());
       session.start(started.runId);
     });
 
@@ -95,19 +108,29 @@ export function SimulateStep({
           <p className="mt-0.5 text-[10px] text-zinc-500">{project.detail.summary}</p>
         </div>
 
+        <Prerequisites checks={prerequisitesFor(project.detail, session.written)} />
+
         <div className="space-y-2">
-          <Action
-            label="Validate"
-            busy={session.busy === "validate"}
-            disabled={running}
-            onClick={validate}
-          />
-          <Action
-            label="Write input"
-            busy={session.busy === "write"}
-            disabled={running}
-            onClick={write}
-          />
+          <div>
+            <Action
+              label="Validate"
+              busy={session.busy === "validate"}
+              disabled={running}
+              onClick={validate}
+            />
+            <Outcome>{validationOutcome(session.validation)}</Outcome>
+          </div>
+
+          <div>
+            <Action
+              label="Write input"
+              busy={session.busy === "write"}
+              disabled={running}
+              onClick={write}
+            />
+            <Outcome>{writeOutcome(session.written, wroteAt)}</Outcome>
+          </div>
+
           <Action
             label={running ? "Running…" : "Write and run"}
             primary
@@ -355,4 +378,34 @@ function RunPanel({ run }: { run: RunState }) {
       <p className="truncate text-zinc-600">{run.runId}</p>
     </div>
   );
+}
+
+/** What validation found, in one line. */
+function validationOutcome(result: ValidationResult | null): string {
+  if (!result) return "";
+  if (!result.ok) {
+    return `${result.errors.length} problem${result.errors.length === 1 ? "" : "s"} to fix`;
+  }
+
+  const cells = result.cells ? `${result.cells.toLocaleString()} cells` : "";
+  const boundaries = result.boundaries?.length
+    ? `${result.boundaries.reduce((total, item) => total + item.cells, 0)} boundary cells`
+    : "no boundaries";
+  const warnings = result.warnings.length
+    ? ` · ${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}`
+    : "";
+
+  return `valid · ${[cells, boundaries].filter(Boolean).join(" · ")}${warnings}`;
+}
+
+/** What writing produced. */
+function writeOutcome(written: WriteResult | null, at: number | null): string {
+  if (!written || at === null) return "";
+  const parts = [`${written.files.length} files`];
+  const components = written.components;
+  if (components?.length) parts.push(`${components.length} components`);
+  if (written.warnings.length) {
+    parts.push(`${written.warnings.length} warning${written.warnings.length === 1 ? "" : "s"}`);
+  }
+  return parts.join(" · ");
 }

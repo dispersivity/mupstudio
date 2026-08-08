@@ -128,6 +128,15 @@ describe("verticalExaggeration", () => {
   it("has nothing to measure without a catalog", () => {
     expect(verticalExaggeration({ ...PLAN, mode: "row" }, null)).toBe(1);
   });
+
+  it("stops short of a factor that would stop meaning anything", () => {
+    // A grid built to cover a catchment before its layers have real elevations
+    // is kilometres across and a metre thick. Filling the frame would need
+    // thousands, and a section stretched that far describes nothing.
+    const flat = catalog({ bounds: { min: [0, 0, -1], max: [24000, 20000, 0] } });
+
+    expect(verticalExaggeration({ ...PLAN, mode: "row" }, flat)).toBe(100);
+  });
 });
 
 describe("formatExaggeration", () => {

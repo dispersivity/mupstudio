@@ -247,9 +247,7 @@ def test_a_layer_with_no_crs_anywhere_says_why_it_cannot_be_drawn(
         preview.geojson_for(directory, stateless, project_crs=None)
 
 
-def test_a_missing_file_is_reported_rather_than_crashing(
-    catchment: Path, tmp_path: Path
-) -> None:
+def test_a_missing_file_is_reported_rather_than_crashing(catchment: Path, tmp_path: Path) -> None:
     directory = project(tmp_path)
     source = ingest.import_file(catchment, directory, source_id="catchment").source
     (directory / ingest.GIS_DIR / source.path).unlink()

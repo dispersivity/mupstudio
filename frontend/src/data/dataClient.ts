@@ -116,3 +116,32 @@ export async function removeSource(path: string, source: string): Promise<void> 
     method: "DELETE",
   });
 }
+
+export interface GeneratedGrid {
+  cellSize: number;
+  nrow: number;
+  ncol: number;
+  nlay: number;
+  activeCells: number;
+  totalCells: number;
+  summary: string;
+  warnings: string[];
+  applied: boolean;
+}
+
+/**
+ * Cover an imported boundary with cells.
+ *
+ * With `apply` false nothing is saved and only the counts come back, which is
+ * what makes trying a cell size cheap enough to do three times.
+ */
+export async function gridFromBoundary(
+  path: string,
+  body: { source: string; cellSize?: number; margin?: number; apply: boolean },
+): Promise<GeneratedGrid> {
+  return json(`/api/v1/projects/grid/from-boundary?${project(path)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}

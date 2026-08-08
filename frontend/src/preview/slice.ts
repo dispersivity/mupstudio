@@ -78,8 +78,16 @@ export function verticalExaggeration(slice: Slice, catalog: DatasetCatalog | nul
   // layers are hard to tell apart, much less and it stops looking like a
   // section.
   const target = 4;
-  return Math.max(1, across / thickness / target);
+  // Capped, because a grid built to cover a catchment before its layers have
+  // real elevations is kilometres across and metres thick, and the factor that
+  // would fill the frame is in the thousands. A section stretched that far
+  // stops describing anything; the slider is still there for anyone who wants
+  // it.
+  return Math.min(MAX_AUTO_EXAGGERATION, Math.max(1, across / thickness / target));
 }
+
+/** As far as the automatic factor will go on its own. */
+export const MAX_AUTO_EXAGGERATION = 100;
 
 /** A factor as a person would write it: "12x", "1.5x". */
 export function formatExaggeration(factor: number): string {

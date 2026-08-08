@@ -67,6 +67,14 @@ export function EditorShell({
         </div>
       </div>
 
+      {/* What the save produced, said where the action was. A button that
+          reports nothing leaves you to go and check whether it worked. */}
+      {savedSummary && !dirty && !error && problems.length === 0 && (
+        <p className="border-b border-zinc-800 px-6 py-1.5 text-[10px] text-sky-400">
+          {savedSummary}
+        </p>
+      )}
+
       {(error || problems.length > 0) && (
         <div className="border-b border-red-900 bg-red-950/30 px-6 py-2">
           {error && <p className="text-xs text-red-300">{error}</p>}

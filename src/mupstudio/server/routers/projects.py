@@ -166,6 +166,13 @@ def describe(project: Project) -> dict[str, Any]:
             "dispersion": project.transport.dispersion.enabled,
             "dualPorosity": project.transport.dual_porosity is not None,
         },
+        "chemistry": {
+            "enabled": project.chemistry.enabled,
+            "database": project.chemistry.database.name,
+            "solutions": len(project.chemistry.solutions),
+            "compositions": len(project.chemistry.compositions),
+        },
+        "data": {"sources": len(project.data.sources), "crs": project.meta.crs},
     }
 
 

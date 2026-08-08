@@ -269,6 +269,68 @@ def set_basemap(path: str, basemap: str | None = None) -> dict[str, Any]:
     return {"basemap": basemap}
 
 
+class GridFromBoundaryRequest(BaseModel):
+    """Cover a boundary with cells."""
+
+    source: str
+    cellSize: float | None = None
+    margin: float = 0.0
+    #: Left alone when absent, so regenerating a grid does not silently discard
+    #: the layers someone set up.
+    top: float | None = None
+    apply: bool = True
+
+
+@router.post("/projects/grid/from-boundary")
+def grid_from_boundary(path: str, request: GridFromBoundaryRequest) -> dict[str, Any]:
+    """Build a structured grid covering an imported boundary.
+
+    With ``apply`` the new grid is saved; without it, the counts come back and
+    nothing changes — which is what makes trying a cell size cheap.
+    """
+    from mupstudio.grids.fromboundary import BoundaryGridError, suggest_cell_size
+    from mupstudio.grids.fromboundary import grid_from_boundary as build
+
+    project = load_project(path)
+    directory = Path(path)
+
+    try:
+        source = project.data.source(request.source)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    try:
+        cell_size = request.cellSize or suggest_cell_size(
+            directory, source, project_crs=project.meta.crs
+        )
+        generated = build(
+            directory,
+            source,
+            cell_size=cell_size,
+            top=request.top if request.top is not None else project.grid.top,
+            layers=list(project.grid.layers),
+            margin=request.margin,
+            project_crs=project.meta.crs,
+        )
+    except BoundaryGridError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    if request.apply:
+        projectstore.save(directory, project.model_copy(update={"grid": generated.grid}))
+
+    return {
+        "cellSize": cell_size,
+        "nrow": generated.grid.nrow,
+        "ncol": generated.grid.ncol,
+        "nlay": generated.grid.nlay,
+        "activeCells": generated.active_cells,
+        "totalCells": generated.total_cells,
+        "summary": generated.describe(),
+        "warnings": generated.warnings,
+        "applied": request.apply,
+    }
+
+
 @router.delete("/projects/data/source")
 def remove_source(path: str, source: str, delete_file: bool = False) -> dict[str, str]:
     """Forget a layer.

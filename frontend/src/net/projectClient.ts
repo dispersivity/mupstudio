@@ -19,6 +19,13 @@ export interface ProjectDetail {
   time: { nper: number; total: number; periods: { perlen: number; nstp: number }[] };
   boundaries: { id: string; kind: string }[];
   transport: { advection: string; dispersion: boolean; dualPorosity: boolean };
+  chemistry?: {
+    enabled: boolean;
+    database: string;
+    solutions: number;
+    compositions: number;
+  };
+  data?: { sources: number; crs: string | null };
 }
 
 export interface ValidationResult {
@@ -33,6 +40,9 @@ export interface WriteResult {
   workdir: string;
   files: string[];
   warnings: string[];
+  /** Present for a reactive model: what PHREEQC's equilibration produced. */
+  components?: string[];
+  reactive?: boolean;
 }
 
 export interface RunState {
@@ -104,10 +114,13 @@ export const projects = {
     ),
 
   run: (path: string) =>
-    request<{ runId: string; workdir: string; files: string[]; warnings: string[] }>(
-      `/projects/run?path=${encodeURIComponent(path)}`,
-      { method: "POST" },
-    ),
+    request<{
+      runId: string;
+      workdir: string;
+      files: string[];
+      warnings: string[];
+      components?: string[];
+    }>(`/projects/run?path=${encodeURIComponent(path)}`, { method: "POST" }),
 };
 
 export const runs = {

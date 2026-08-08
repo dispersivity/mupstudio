@@ -33,9 +33,10 @@ export function useProjectDocument(path: string | null) {
   const [problems, setProblems] = useState<FieldProblem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [savedSummary, setSavedSummary] = useState<string | null>(null);
-  // Bumped on every successful save. Anything derived from what is on disk —
+  // Bumped whenever what is on disk changes: a save from here, or a reload
+  // after something else wrote it. Anything derived from the saved project —
   // the drawn model, most of all — watches this rather than the document, so it
-  // refreshes when the edit lands and not on every keystroke.
+  // refreshes when a change lands rather than on every keystroke.
   const [revision, setRevision] = useState(0);
 
   const reload = useCallback(async () => {
@@ -50,6 +51,7 @@ export function useProjectDocument(path: string | null) {
       setDocument((await response.json()).document);
       setDirty(false);
       setProblems([]);
+      setRevision((value) => value + 1);
     } catch (problem) {
       setError((problem as Error).message);
     }
