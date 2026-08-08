@@ -3,6 +3,8 @@ import { fetchCatalog, ViewportClient, type DatasetCatalog } from "@/net/viewpor
 import { createViewport } from "@/viewport";
 import type { Viewport } from "@/viewport/types";
 import { Colorbar } from "@/viewport-host/Colorbar";
+import { defaultSlice, formatExaggeration, verticalExaggeration, type Slice } from "./slice";
+import { ViewControls } from "./ViewControls";
 
 /**
  * The model being edited, drawn.
@@ -77,6 +79,9 @@ export function ModelPreview({
   }, []);
   const [range, setRange] = useState<[number, number]>([0, 1]);
   const [showEdges, setShowEdges] = useState(true);
+  const [slice, setSlice] = useState<Slice | null>(null);
+  // Null means "whatever suits this view"; a number means the user chose.
+  const [exaggeration, setExaggeration] = useState<number | null>(null);
 
   const datasetId = path ? `preview:${path}` : null;
 
@@ -124,10 +129,7 @@ export function ModelPreview({
         viewport.setScalars(scalars);
         setDrawRange(viewport, scalars.vmin, scalars.vmax);
         viewport.setShowEdges(true);
-        // A column is one cell across, and at true scale it draws as a slab
-        // with the interesting axis hidden inside it. Squashing the thin axis
-        // is what makes a 1D model look like one.
-        applyThinAxis(viewport, loaded);
+        setSlice((current) => current ?? defaultSlice(loaded));
         setField(wanted);
         chosen.current = wanted;
         setRange([scalars.vmin, scalars.vmax]);
@@ -147,7 +149,6 @@ export function ModelPreview({
     };
     // `field` is deliberately absent: it is read through a ref to preserve the
     // selection, and changing it reloads through the effect below instead.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId, revision, setField]);
 
   // Switching field re-fetches one array. The geometry is already on the GPU
@@ -187,6 +188,35 @@ export function ModelPreview({
     viewportRef.current?.setShowEdges(showEdges);
   }, [showEdges]);
 
+  // The slice and the camera move together: a plan view of one layer is only
+  // legible from directly above, and a row section only from the front.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !slice || status !== "ready") return;
+
+    const columns = catalog?.ncol ?? 0;
+    viewport.setAxisScale(...axisScaleFor(slice, catalog, exaggeration));
+
+    if (slice.mode === "plan") {
+      viewport.setSlice("layer", slice.layer, columns);
+      viewport.setCanonicalView("plan");
+    } else if (slice.mode === "row") {
+      viewport.setSlice("row", slice.row, columns);
+      viewport.setCanonicalView("front");
+    } else if (slice.mode === "column") {
+      viewport.setSlice("column", slice.column, columns);
+      viewport.setCanonicalView("side");
+    } else {
+      viewport.setSlice("all", 0, columns);
+      viewport.setCanonicalView("free");
+    }
+    viewport.frameAll();
+  }, [slice, catalog, status, exaggeration]);
+
+  // A view change discards a factor the user set for the previous one: an
+  // exaggeration that suited a section is wrong for the next.
+  useEffect(() => setExaggeration(null), [slice?.mode]);
+
   const fields = useMemo<Field[]>(() => {
     if (catalog?.fields) return catalog.fields as Field[];
     // A catalog without the field descriptions still lists components, so the
@@ -201,6 +231,7 @@ export function ModelPreview({
   }, [catalog]);
 
   const current = fields.find((item) => item.name === field);
+  const effectiveExaggeration = exaggeration ?? (slice ? verticalExaggeration(slice, catalog) : 1);
 
   // A field covering part of the grid needs the rest drawn faintly behind it: a
   // single bright cell floating in space says nothing about where it is. Decided
@@ -272,6 +303,35 @@ export function ModelPreview({
         </button>
       </div>
 
+      {slice && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-2 py-1.5">
+          <ViewControls slice={slice} catalog={catalog} onChange={setSlice} />
+
+          {slice.mode !== "plan" && (
+            <label
+              className="flex items-center gap-1.5 text-[10px] text-zinc-500"
+              title="How much the vertical is stretched. A section at true scale is a hairline."
+            >
+              V.E.
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={exaggerationToSlider(effectiveExaggeration)}
+                aria-label="Vertical exaggeration"
+                onChange={(event) =>
+                  setExaggeration(sliderToExaggeration(Number(event.target.value)))
+                }
+                className="h-1 w-20 accent-sky-600"
+              />
+              <span className="w-8 tabular-nums text-zinc-300">
+                {formatExaggeration(effectiveExaggeration)}
+              </span>
+            </label>
+          )}
+        </div>
+      )}
+
       <div className="relative min-h-0 flex-1">
         {/* Orbit, pan and zoom are handled inside the viewport module, which
             owns the arcball; the canvas needs no handlers of its own. */}
@@ -323,18 +383,21 @@ export function ModelPreview({
 }
 
 /**
- * Flatten an axis the grid is one cell across.
+ * How to scale each axis for the view being shown.
  *
- * Column benchmarks use a unit width so that cell volume equals cell length,
- * which is convenient arithmetic and a bad picture: the model is half a metre
- * long and a metre wide, so it draws as a block. Scaling that axis down leaves
- * the geometry alone and makes the length visible.
+ * Two separate corrections. A grid one cell across draws as a slab with the
+ * interesting axis buried inside it, so that axis is squashed. A section of a
+ * real aquifer is a hairline at true scale, so the vertical is stretched.
  */
-function applyThinAxis(viewport: Viewport, catalog: DatasetCatalog): void {
+function axisScaleFor(
+  slice: Slice,
+  catalog: DatasetCatalog | null,
+  chosen: number | null,
+): [number, number, number] {
   const squash = 0.02;
-  if (catalog.thinAxis === "x") viewport.setAxisScale(squash, 1, 1);
-  else if (catalog.thinAxis === "y") viewport.setAxisScale(1, squash, 1);
-  else viewport.setAxisScale(1, 1, 1);
+  const x = catalog?.thinAxis === "x" ? squash : 1;
+  const y = catalog?.thinAxis === "y" ? squash : 1;
+  return [x, y, chosen ?? verticalExaggeration(slice, catalog)];
 }
 
 /**
@@ -353,6 +416,23 @@ function setDrawRange(viewport: Viewport, vmin: number, vmax: number): void {
   }
   const pad = Math.abs(vmin) || 1;
   viewport.setRange(vmin - pad, vmax + pad);
+}
+
+/**
+ * The slider's position for a factor, and back.
+ *
+ * Logarithmic: the useful range runs from 1 to a few hundred, and a linear
+ * slider would spend most of its travel between 200 and 300 while the
+ * difference between 1 and 5 — which is the difference between a hairline and
+ * a readable section — happened in the first two pixels.
+ */
+function exaggerationToSlider(factor: number): number {
+  const clamped = Math.min(Math.max(factor, 1), 500);
+  return (Math.log(clamped) / Math.log(500)) * 100;
+}
+
+function sliderToExaggeration(position: number): number {
+  return Math.exp((position / 100) * Math.log(500));
 }
 
 /** How much of the grid a field covers, in words. */

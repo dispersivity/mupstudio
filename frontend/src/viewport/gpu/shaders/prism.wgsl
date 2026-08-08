@@ -23,6 +23,8 @@ struct Frame {
   // a single row or column be squashed so it reads as the 1D profile it is
   // rather than as a slab.
   axisScale: vec4<f32>,
+  // Which part of the model to draw: see inSlice below.
+  slice: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -57,6 +59,39 @@ fn cellIndex(cellInLayer: f32, layer: u32) -> u32 {
   return layer * u32(frame.gridInfo.x) + u32(cellInLayer);
 }
 
+// Whether a cell is part of the slice currently on show.
+//
+// Checking input means answering "which cells", and an oblique view of a solid
+// block cannot: the front faces hide the ones behind. One layer seen from above,
+// or one row seen from the side, has nothing hidden in it. So the whole model is
+// one of four views rather than the only one.
+//
+// slice = (mode, index, columns per row, unused).
+//   0  the whole model
+//   1  one layer, seen in plan
+//   2  one row of cells, seen from the front
+//   3  one column of cells, seen from the side
+fn inSlice(cellInLayer: f32, layer: u32) -> bool {
+  let mode = i32(frame.slice.x);
+  if (mode == 0) {
+    return true;
+  }
+  if (mode == 1) {
+    return layer == u32(frame.slice.y);
+  }
+
+  // Row and column need the grid's shape, which only a structured grid has.
+  let columns = u32(frame.slice.z);
+  if (columns == 0u) {
+    return true;
+  }
+  let cell = u32(cellInLayer);
+  if (mode == 2) {
+    return cell / columns == u32(frame.slice.y);
+  }
+  return cell % columns == u32(frame.slice.y);
+}
+
 @vertex
 fn vertexMain(input: VertexIn, @builtin(instance_index) layer: u32) -> VertexOut {
   let cell = cellIndex(input.cellInLayer, layer);
@@ -67,6 +102,16 @@ fn vertexMain(input: VertexIn, @builtin(instance_index) layer: u32) -> VertexOut
   let world = vec3<f32>(input.position, elevation) * frame.axisScale.xyz;
 
   var out: VertexOut;
+  if (!inSlice(input.cellInLayer, layer)) {
+    // Collapsed to a point, so its triangles have no area and nothing is
+    // rasterised. Cheaper than discarding every fragment, and it keeps the
+    // cell out of the pick buffer too.
+    out.clipPosition = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    out.value = frame.gridInfo.z;
+    out.shade = 1.0;
+    out.cellId = cell;
+    return out;
+  }
   out.clipPosition = frame.viewProj * vec4<f32>(world, 1.0);
   out.value = scalars[cell];
 
@@ -128,6 +173,12 @@ fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
 @fragment
 fn fragmentEdge(input: VertexOut) -> @location(0) vec4<f32> {
   if (isAbsent(input.value)) {
+    // Ghosted cells keep their outlines. Without them the shell is a
+    // featureless block, and a section drawn as one solid grey rectangle hides
+    // exactly what a section is for: which layer, and how thick.
+    if (frame.gridInfo.w > 0.5) {
+      return vec4<f32>(0.16, 0.17, 0.20, 1.0);
+    }
     discard;
   }
   return vec4<f32>(0.06, 0.07, 0.09, 1.0);

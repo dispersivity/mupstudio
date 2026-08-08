@@ -45,6 +45,33 @@ export class ArcballCamera {
     return { ...this.state, target: [...this.state.target] };
   }
 
+  /**
+   * Point the camera at the model from a named direction.
+   *
+   * Plan view looks straight down, which is how a modeller reads a layer: rows
+   * down the screen, columns across, nothing hidden behind anything. The two
+   * section views look along a horizontal axis so a vertical slice is seen
+   * face-on. Pitch stops just short of the pole because the camera's up vector
+   * is undefined there.
+   */
+  setOrientation(view: "plan" | "front" | "side" | "free") {
+    const almostVertical = Math.PI / 2 - 1e-3;
+    if (view === "plan") {
+      this.state.yaw = -Math.PI / 2;
+      this.state.pitch = almostVertical;
+    } else if (view === "front") {
+      // Looking north along +y, so rows stack away from the viewer.
+      this.state.yaw = -Math.PI / 2;
+      this.state.pitch = 0;
+    } else if (view === "side") {
+      this.state.yaw = 0;
+      this.state.pitch = 0;
+    } else {
+      this.state.yaw = -Math.PI / 4;
+      this.state.pitch = 0.6;
+    }
+  }
+
   setAspect(width: number, height: number) {
     this.aspect = height > 0 ? width / height : 1;
   }

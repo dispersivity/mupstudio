@@ -76,6 +76,19 @@ export interface Viewport {
    * regions, where a hole is the truth.
    */
   setGhostAbsent(enabled: boolean): void;
+  /**
+   * Show one layer, one row, one column, or the whole model.
+   *
+   * Checking model input means answering "which cells", and an oblique view of
+   * a solid block cannot: the near faces hide the ones behind them. A single
+   * layer seen from above has nothing hidden in it.
+   *
+   * ``columns`` is the grid's columns per row, needed by the row and column
+   * modes and meaningless on a vertex grid, which has neither.
+   */
+  setSlice(mode: "all" | "layer" | "row" | "column", index: number, columns?: number): void;
+  /** Point the camera from a named direction, or return it to free orbit. */
+  setCanonicalView(view: "plan" | "front" | "side" | "free"): void;
   setVerticalExaggeration(factor: number): void;
   /**
    * Scale the model along each world axis.

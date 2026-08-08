@@ -156,6 +156,10 @@ class PreviewDataset:
             "engine": self._model.project.meta.engine,
             "warnings": list(self._model.warnings),
             "cells": self.mesh.ncells,
+            # The grid's shape, which the client needs to slice by row or
+            # column. A vertex grid has neither and reports nothing.
+            "nrow": self._model.grid.nrow,
+            "ncol": self._model.grid.ncol,
             "fields": [
                 {
                     "name": name,

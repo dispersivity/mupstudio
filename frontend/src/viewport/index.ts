@@ -21,7 +21,7 @@ import type {
   ViewportOptions,
 } from "./types";
 
-const FRAME_UNIFORM_FLOATS = 16 + 4 + 4 + 4; // viewProj, params, gridInfo, axisScale
+const FRAME_UNIFORM_FLOATS = 16 + 4 + 4 + 4 + 4; // viewProj, params, gridInfo, axisScale, slice
 const DEPTH_FORMAT: GPUTextureFormat = "depth24plus";
 // Cell identities are rendered to this format: 32-bit unsigned holds any grid
 // we will draw, and integer targets do not blend or filter, so the value read
@@ -203,6 +203,9 @@ export async function createViewport(
   const nodata = options.nodata ?? -1e30;
   // Whether cells with no value are drawn as a dim shell or not at all.
   let ghostAbsent = false;
+  // Which part of the model is on show: mode, index, and the grid's columns per
+  // row, which row and column slices need and a vertex grid does not have.
+  let slice: [number, number, number] = [0, 0, 0];
 
   const cameraListeners = new Set<(view: CameraView) => void>();
 
@@ -463,6 +466,7 @@ export async function createViewport(
     uniformData.set([0, range[0], range[1], logScale ? 1 : 0], 16);
     uniformData.set([geometry?.ncpl ?? 0, -1, nodata, ghostAbsent ? 1 : 0], 20);
     uniformData.set([...axisScale, 0], 24);
+    uniformData.set([...slice, 0], 28);
     device.queue.writeBuffer(uniformBuffer, 0, uniformData);
   }
 
@@ -577,6 +581,15 @@ export async function createViewport(
     },
     setGhostAbsent(enabled) {
       ghostAbsent = enabled;
+      dirty = true;
+    },
+    setSlice(mode, index, columns = 0) {
+      const modes = { all: 0, layer: 1, row: 2, column: 3 } as const;
+      slice = [modes[mode], Math.max(0, Math.floor(index)), Math.max(0, Math.floor(columns))];
+      dirty = true;
+    },
+    setCanonicalView(view) {
+      camera.setOrientation(view);
       dirty = true;
     },
     setVerticalExaggeration(factor) {

@@ -33,6 +33,14 @@ export interface DatasetCatalog {
    * run has no such distinction and omits this.
    */
   fields?: { name: string; label: string; kind: string; unit: string; setCells: number }[];
+  /**
+   * Rows and columns, for a structured grid.
+   *
+   * Absent on a vertex grid, which has cells in a layer and no notion of either.
+   * Slicing by row or column needs them.
+   */
+  nrow?: number;
+  ncol?: number;
 }
 
 interface Pending {
