@@ -10,6 +10,15 @@ def client() -> TestClient:
     return TestClient(create_app(dev=True))
 
 
+def test_health_answers_head_as_well_as_get() -> None:
+    """Uptime checks and wait-for-server scripts probe with HEAD.
+
+    FastAPI does not add HEAD to a GET route, so this endpoint used to answer
+    405 to the method most likely to ask it anything. CI waited on it forever.
+    """
+    assert client().head("/api/v1/health").status_code == 200
+
+
 def test_health_reports_version() -> None:
     response = client().get("/api/v1/health")
 

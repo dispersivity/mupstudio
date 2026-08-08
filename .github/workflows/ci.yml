@@ -116,11 +116,13 @@ jobs:
           uv run uvicorn mupstudio.server.app:create_app --factory --port 8000 > /tmp/api.log 2>&1 &
           pnpm --dir frontend dev --port 5173 > /tmp/vite.log 2>&1 &
 
-          # A server that dies leaves wait-on blocking forever, which is a
-          # hung job rather than a failed one. Two minutes is far longer than
-          # either takes to start, and the logs say which one did not.
+          # http-get:// because wait-on probes with HEAD by default, and
+          # FastAPI does not answer HEAD on a route declared for GET — so the
+          # health check came back 405 and wait-on kept waiting for a server
+          # that was already up. The timeout is the backstop for one that is
+          # genuinely not, and the logs below say which.
           if ! npx wait-on --timeout 120000 \
-              http://127.0.0.1:8000/api/v1/health http://localhost:5173; then
+              http-get://127.0.0.1:8000/api/v1/health http-get://localhost:5173; then
             echo "--- api ---"; cat /tmp/api.log
             echo "--- vite ---"; cat /tmp/vite.log
             exit 1

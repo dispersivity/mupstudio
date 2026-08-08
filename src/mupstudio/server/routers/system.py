@@ -11,7 +11,11 @@ from mupstudio.settings import Settings
 router = APIRouter(tags=["system"])
 
 
-@router.get("/health")
+# HEAD as well as GET. Starlette adds HEAD to a plain GET route; FastAPI does
+# not, so an endpoint whose entire job is to answer "are you up" refuses the
+# method that every uptime checker, load balancer and wait-for-server script
+# reaches for first. It cost half an hour of CI a run before anyone noticed.
+@router.api_route("/health", methods=["GET", "HEAD"])
 def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
