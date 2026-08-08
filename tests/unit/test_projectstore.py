@@ -27,7 +27,7 @@ from mupstudio.schema.flow import (
     WellPackage,
 )
 from mupstudio.schema.grid import AxisSpacing, LayerSpec, StructuredGrid, column_grid
-from mupstudio.schema.project import Project, ProjectMeta
+from mupstudio.schema.project import SCHEMA_VERSION, Project, ProjectMeta
 from mupstudio.schema.selection import CellList, CellRange
 from mupstudio.schema.transport import Dispersion, TransportModel
 from mupstudio.schema.zones import PropertyZone
@@ -315,3 +315,45 @@ class TestTomlWriter:
         text = toml_io.dumps({"values": {"sand": 0.35, "clay": 0.05}})
 
         assert toml_io.loads(text)["values"] == {"sand": 0.35, "clay": 0.05}
+
+
+class TestSchemaVersion:
+    """Projects are files people keep, so the version has to mean something."""
+
+    def test_a_version_one_project_still_opens(self, tmp_path: Path) -> None:
+        """Written before packages held entries and elevations were surfaces."""
+        directory = tmp_path / "old.mup"
+        projectstore.save(directory, simple())
+        (directory / "project.toml").write_text(
+            '[meta]\nname = "old"\nengine = "mf6rtm"\nschema_version = 1\n'
+            "\n[[time.periods]]\nperlen = 1.0\nnstp = 1\n"
+        )
+        (directory / "flow.toml").write_text(
+            "[[flow.packages]]\n"
+            'kind = "chd"\nid = "outflow"\n'
+            '\n[flow.packages.cells]\nkind = "cells"\nlayers = [1]\nrows = [1]\ncolumns = [5]\n'
+            '\n[flow.packages.head]\nkind = "constant"\nvalue = 0.0\n'
+        )
+        (directory / "grid.toml").write_text(
+            '[grid]\nkind = "structured"\ntop = 0.0\n'
+            "\n[grid.columns]\nncells = 5\ntotal_length = 5.0\n"
+            "\n[grid.rows]\nncells = 1\ntotal_length = 1.0\n"
+            "\n[[grid.layers]]\nbottom = -1.0\n"
+        )
+
+        loaded = projectstore.load(directory)
+
+        assert loaded.flow.packages[0].entries[0].head.value == 0.0
+        assert loaded.grid.top.value == 0.0
+        assert loaded.meta.schema_version == SCHEMA_VERSION
+
+    def test_a_newer_project_is_refused_rather_than_half_read(self, tmp_path: Path) -> None:
+        directory = tmp_path / "future.mup"
+        projectstore.save(directory, simple())
+        text = (directory / "project.toml").read_text()
+        (directory / "project.toml").write_text(
+            text.replace(f"schema_version = {SCHEMA_VERSION}", "schema_version = 99")
+        )
+
+        with pytest.raises(projectstore.ProjectError, match="newer mupstudio"):
+            projectstore.load(directory)

@@ -30,7 +30,11 @@ def _where(package_id: str, entry: object, position: int) -> str:
 
 # Bumped when a change cannot be read by the previous version. Migrations live
 # in schema/migrate.py and run on load.
-SCHEMA_VERSION = 1
+#
+# 2: boundary packages hold a list of entries instead of one selection and one
+#    set of values; layer elevations are surfaces rather than bare numbers;
+#    projects gained zones and grids gained an active-cell selection.
+SCHEMA_VERSION = 2
 
 Engine = Literal["mf6rtm", "pht3d"]
 
