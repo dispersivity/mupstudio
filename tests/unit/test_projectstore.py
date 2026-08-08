@@ -94,6 +94,7 @@ class TestRoundTrip:
         assert written == [
             ".gitignore",
             "chemistry.toml",
+            "data.toml",
             "flow.toml",
             "grid.toml",
             "project.toml",

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 from mupstudio.schema.chemistry import ChemistryModel
 from mupstudio.schema.common import Id, LengthUnit, TimeDiscretisation, TimeUnit
 from mupstudio.schema.flow import PACKAGE_NAMES, SOLUTE_CARRYING, FlowModel
+from mupstudio.schema.gis import DataModel
 from mupstudio.schema.grid import GridSpec, StructuredGrid
 from mupstudio.schema.transport import TransportModel
 
@@ -61,6 +62,7 @@ class Project(BaseModel):
     meta: ProjectMeta
     grid: GridSpec
     time: TimeDiscretisation
+    data: DataModel = Field(default_factory=DataModel)
     flow: FlowModel = Field(default_factory=FlowModel)
     transport: TransportModel = Field(default_factory=TransportModel)
     chemistry: ChemistryModel = Field(default_factory=ChemistryModel)

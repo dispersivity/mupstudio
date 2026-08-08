@@ -7,6 +7,7 @@ a script, and open the result in the app.
 
     myproject.mup/
       project.toml     name, engine, units, time discretisation
+      data.toml
       grid.toml
       flow.toml
       transport.toml
@@ -31,6 +32,7 @@ SUFFIX = ".mup"
 # time because a run's time axis is small and is what you check first.
 SECTIONS: dict[str, tuple[str, ...]] = {
     "project.toml": ("meta", "time"),
+    "data.toml": ("data",),
     "grid.toml": ("grid",),
     "flow.toml": ("flow",),
     "transport.toml": ("transport",),

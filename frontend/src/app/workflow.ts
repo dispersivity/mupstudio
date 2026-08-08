@@ -40,7 +40,7 @@ export const STEPS: Step[] = [
   {
     id: "data",
     label: "Data",
-    purpose: "Import shapefiles, GeoJSON, DEM rasters and well CSVs.",
+    purpose: "Import shapefiles, GeoJSON, rasters and well CSVs, and see them on a map.",
     dependsOn: ["project"],
     milestone: "M4",
   },
@@ -100,6 +100,7 @@ export const STEP_BY_ID = new Map(STEPS.map((step) => [step.id, step]));
 /** Steps that have something behind them today. The rest say so plainly. */
 export const IMPLEMENTED: ReadonlySet<StepId> = new Set<StepId>([
   "project",
+  "data",
   "grid",
   "time",
   "flow",

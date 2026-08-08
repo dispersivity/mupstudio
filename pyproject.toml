@@ -42,6 +42,9 @@ dependencies = [
     "shapely>=2.0",
     "rasterio>=1.3",
     "platformdirs>=4.0",
+    # Browser uploads arrive as multipart form data, which Starlette parses
+    # only when this is present.
+    "python-multipart>=0.0.9",
     "typer>=0.15",
     "zstandard>=0.23",
 ]
