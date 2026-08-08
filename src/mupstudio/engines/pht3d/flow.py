@@ -94,7 +94,11 @@ def write_flow(model: CompiledModel, workdir: Path) -> FlowTwin:
         lenuni=LENGTH_UNITS.get(project.meta.length_unit, 2),
     )
 
-    flopy.modflow.ModflowBas(mf, ibound=1, strt=properties["strt"])
+    # IBOUND is MODFLOW-2005's IDOMAIN: zero marks a cell that takes no part.
+    # Negative would mean a constant head, which this model states through CHD
+    # instead, so the only values here are 1 and 0.
+    ibound = 1 if grid.idomain is None else grid.idomain
+    flopy.modflow.ModflowBas(mf, ibound=ibound, strt=properties["strt"])
     flopy.modflow.ModflowLpf(
         mf,
         hk=properties["k"],

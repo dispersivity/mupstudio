@@ -168,7 +168,7 @@ def test_layers_are_carried_through(tmp_path: Path) -> None:
     )
 
     assert generated.grid.nlay == 3
-    assert generated.grid.top == 100.0
+    assert generated.grid.top.value == 100.0
     assert generated.grid.layers[0].name == "sand"
 
 

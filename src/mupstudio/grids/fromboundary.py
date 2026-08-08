@@ -31,6 +31,8 @@ import numpy as np
 from mupstudio.gisio.ingest import source_path
 from mupstudio.schema.gis import GisSource, VectorSource
 from mupstudio.schema.grid import AxisSpacing, LayerSpec, StructuredGrid
+from mupstudio.schema.selection import ShapeSelection
+from mupstudio.schema.surfaces import SurfaceSource
 
 log = logging.getLogger(__name__)
 
@@ -73,7 +75,7 @@ def grid_from_boundary(
     source: GisSource,
     *,
     cell_size: float,
-    top: float,
+    top: SurfaceSource | float,
     layers: list[LayerSpec],
     margin: float = 0.0,
     project_crs: str | None = None,
@@ -112,8 +114,17 @@ def grid_from_boundary(
         rotation=0.0,
         columns=AxisSpacing(ncells=ncol, total_length=ncol * cell_size),
         rows=AxisSpacing(ncells=nrow, total_length=nrow * cell_size),
-        top=top,
+        top=top,  # type: ignore[arg-type]
         layers=layers,
+        # The cells the boundary covers are the model; the rest of the
+        # rectangle is not. Stored as the boundary itself rather than as the
+        # list of cells it currently covers, so refining the grid re-derives
+        # them instead of leaving a stale list behind.
+        active=ShapeSelection(
+            source=source.id,
+            layers=list(range(1, sum(layer.sublayers for layer in layers) + 1)),
+            rule="centroid",
+        ),
     )
 
     inside = _cells_inside(polygon, grid, cell_size, west, north)

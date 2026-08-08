@@ -9,7 +9,15 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from mupstudio.schema.selection import CellSelection
+from mupstudio.schema.surfaces import (
+    ConstantSurface,
+    SurfaceSource,
+    as_surface,
+    constant_value,
+)
 
 
 class AxisSpacing(BaseModel):
@@ -56,8 +64,21 @@ class LayerSpec(BaseModel):
     """One layer's bottom elevation, and how many cells it is split into."""
 
     name: str | None = None
-    bottom: float
+    bottom: SurfaceSource
     sublayers: int = Field(default=1, ge=1)
+    minimum_thickness: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Keep the layer at least this thick where the surfaces cross or pinch out. "
+            "Cells that had to be pushed down are reported after the grid is built."
+        ),
+    )
+
+    @field_validator("bottom", mode="before")
+    @classmethod
+    def _accept_a_number(cls, value: object) -> object:
+        return as_surface(value)
 
 
 class StructuredGrid(BaseModel):
@@ -73,20 +94,44 @@ class StructuredGrid(BaseModel):
     rotation: float = Field(default=0.0, description="Degrees counterclockwise about the origin")
     columns: AxisSpacing
     rows: AxisSpacing
-    top: float
+    top: SurfaceSource
     layers: list[LayerSpec] = Field(min_length=1)
+    active: CellSelection | None = Field(
+        default=None,
+        description=(
+            "Which cells are part of the model. Everything if unset. This becomes "
+            "IDOMAIN, so cells outside an imported catchment stop taking part in "
+            "the flow solution instead of quietly extending it to the bounding box."
+        ),
+    )
+
+    @field_validator("top", mode="before")
+    @classmethod
+    def _accept_a_number(cls, value: object) -> object:
+        return as_surface(value)
 
     @model_validator(mode="after")
     def _layers_must_descend(self) -> StructuredGrid:
-        elevation = self.top
+        """Only where the elevations are numbers.
+
+        A raster or an interpolated surface is not known until the grid is
+        built, and two of them can legitimately cross in a corner of the model
+        that is inactive anyway. Those are caught during the build, where the
+        offending cells can be counted and clamped rather than guessed at.
+        """
+        elevation = constant_value(self.top)
         for index, layer in enumerate(self.layers):
-            if layer.bottom >= elevation:
+            bottom = constant_value(layer.bottom)
+            if bottom is None or elevation is None:
+                elevation = bottom
+                continue
+            if bottom >= elevation:
                 raise ValueError(
-                    f"layer {index + 1} has bottom {layer.bottom} at or above the "
+                    f"layer {index + 1} has bottom {bottom} at or above the "
                     f"{'model top' if index == 0 else 'layer above'} ({elevation}); "
                     "layers must descend"
                 )
-            elevation = layer.bottom
+            elevation = bottom
         return self
 
     @property
@@ -130,6 +175,7 @@ def column_grid(
     return StructuredGrid(
         columns=AxisSpacing(ncells=ncells, total_length=length),
         rows=AxisSpacing(ncells=1, total_length=width),
-        top=top,
-        layers=[LayerSpec(bottom=top - thickness)],
+        # The validators accept a bare number; mypy sees only the union.
+        top=ConstantSurface(value=top),
+        layers=[LayerSpec(bottom=ConstantSurface(value=top - thickness))],
     )

@@ -9,7 +9,7 @@ to understand the schema's conveniences.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +44,14 @@ class CompiledGrid:
     origin_x: float
     origin_y: float
     rotation: float
+    #: 1 where a cell takes part in the solution, 0 where it does not. MODFLOW 6
+    #: calls this IDOMAIN and MODFLOW-2005 calls it IBOUND; both need it, or a
+    #: model of a catchment quietly solves flow over its bounding rectangle.
+    idomain: np.ndarray | None = None
+
+    @property
+    def active_cells(self) -> int:
+        return self.ncells if self.idomain is None else int((self.idomain != 0).sum())
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -134,8 +142,9 @@ def compile_project(project: Project, *, root: Path | None = None) -> CompiledMo
     if not isinstance(project.grid, StructuredGrid):
         raise CompileError(f"cannot compile a {project.grid.kind} grid yet")
 
-    grid = _compile_grid(project.grid)
     warnings: list[str] = []
+    grid = _compile_grid(project.grid, project=project, root=root, warnings=warnings)
+    grid = _apply_idomain(grid, project, root=root, warnings=warnings)
     properties = _compile_properties(project, grid, root=root, warnings=warnings)
     boundaries = [
         _compile_boundary(package, project, grid, root=root) for package in project.flow.packages
@@ -150,6 +159,41 @@ def compile_project(project: Project, *, root: Path | None = None) -> CompiledMo
         zones=_compile_zones(project, grid, root=root),
         warnings=warnings,
     )
+
+
+def _apply_idomain(
+    grid: CompiledGrid, project: Project, *, root: Path | None, warnings: list[str]
+) -> CompiledGrid:
+    """Mark the cells the model is actually made of.
+
+    Without this a grid built to fit a catchment still solves flow over the
+    whole rectangle it was cut from — the cells outside the boundary have
+    conductivity, take recharge and pass water, and the water balance is for a
+    model nobody drew.
+    """
+    active = getattr(project.grid, "active", None)
+    if active is None:
+        return grid
+
+    cells = _cell_ids(active, project, grid, root=root)
+    if not cells:
+        raise CompileError(
+            "the active-cell selection covers no cells, which would leave a model "
+            "with nothing in it"
+        )
+
+    idomain = np.zeros(grid.shape, dtype=np.int32)
+    idomain[tuple(np.array(axis) for axis in zip(*cells, strict=True))] = 1
+
+    inactive = grid.ncells - int(idomain.sum())
+    if inactive:
+        share = 100 * inactive / grid.ncells
+        warnings.append(
+            f"{inactive:,} of {grid.ncells:,} cells ({share:.0f}%) are outside the model "
+            "and will not take part in the flow solution"
+        )
+
+    return replace(grid, idomain=idomain)
 
 
 def _compile_zones(project: Project, grid: CompiledGrid, *, root: Path | None) -> np.ndarray:
@@ -223,30 +267,40 @@ def _compile_chemistry(
     return CompiledChemistry(assemblages=assemblages, numbering=numbering)
 
 
-def _compile_grid(spec: StructuredGrid) -> CompiledGrid:
+def _compile_grid(
+    spec: StructuredGrid,
+    *,
+    project: Project | None = None,
+    root: Path | None = None,
+    warnings: list[str] | None = None,
+) -> CompiledGrid:
+    from mupstudio.grids.elevations import ElevationError, resolve_elevations
+
     delr = np.asarray(spec.columns.resolve(), dtype=np.float64)
     delc = np.asarray(spec.rows.resolve(), dtype=np.float64)
-    nrow, ncol = len(delc), len(delr)
 
-    # A layer with sublayers is split into equal thicknesses between its top and
-    # its bottom, which is what "3 sublayers" is understood to mean.
-    bottoms: list[float] = []
-    elevation = spec.top
-    for layer in spec.layers:
-        step = (elevation - layer.bottom) / layer.sublayers
-        for sublayer in range(layer.sublayers):
-            bottoms.append(elevation - step * (sublayer + 1))
-        elevation = layer.bottom
+    sources = {source.id: source for source in project.data.sources} if project else {}
+    try:
+        elevations = resolve_elevations(
+            spec,
+            project=root,
+            sources=sources,
+            project_crs=project.meta.crs if project else None,
+        )
+    except ElevationError as error:
+        raise CompileError(str(error)) from error
 
-    nlay = len(bottoms)
+    if warnings is not None:
+        warnings.extend(elevations.warnings)
+
     return CompiledGrid(
-        nlay=nlay,
-        nrow=nrow,
-        ncol=ncol,
+        nlay=elevations.nlay,
+        nrow=len(delc),
+        ncol=len(delr),
         delr=delr,
         delc=delc,
-        top=np.full((nrow, ncol), spec.top, dtype=np.float64),
-        botm=np.stack([np.full((nrow, ncol), bottom, dtype=np.float64) for bottom in bottoms]),
+        top=elevations.top,
+        botm=elevations.botm,
         origin_x=spec.origin_x,
         origin_y=spec.origin_y,
         rotation=spec.rotation,

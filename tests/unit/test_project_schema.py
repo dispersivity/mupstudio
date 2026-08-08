@@ -67,7 +67,7 @@ class TestStructuredGrid:
         grid = column_grid(ncells=10, length=1.0)
 
         assert grid.rows.length == pytest.approx(1.0)
-        assert grid.top - grid.layers[0].bottom == pytest.approx(1.0)
+        assert grid.top.value - grid.layers[0].bottom.value == pytest.approx(1.0)
 
     def test_sublayers_multiply_the_layer_count(self) -> None:
         grid = StructuredGrid(

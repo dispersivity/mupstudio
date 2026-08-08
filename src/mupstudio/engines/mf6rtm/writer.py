@@ -129,6 +129,10 @@ def _write_flow(simulation, model: CompiledModel, warnings: list[str]):  # type:
         xorigin=grid.origin_x,
         yorigin=grid.origin_y,
         angrot=grid.rotation,
+        # Omitted rather than passed as all-ones when every cell is active:
+        # MODFLOW treats an absent IDOMAIN as "all active" and writing the
+        # array anyway is a megabyte of ones per layer for no difference.
+        **({"idomain": grid.idomain} if grid.idomain is not None else {}),
     )
 
     flopy.mf6.ModflowGwfnpf(
@@ -246,6 +250,10 @@ def _write_transport(simulation, model: CompiledModel, gwf):  # type: ignore[no-
         xorigin=grid.origin_x,
         yorigin=grid.origin_y,
         angrot=grid.rotation,
+        # Omitted rather than passed as all-ones when every cell is active:
+        # MODFLOW treats an absent IDOMAIN as "all active" and writing the
+        # array anyway is a megabyte of ones per layer for no difference.
+        **({"idomain": grid.idomain} if grid.idomain is not None else {}),
     )
 
     flopy.mf6.ModflowGwtic(gwt, strt=0.0)

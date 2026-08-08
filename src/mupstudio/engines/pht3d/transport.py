@@ -120,7 +120,10 @@ def write_transport(
         htop=uniform_or_array(grid.top),
         dz=uniform_or_array(_layer_thicknesses(grid)),
         prsity=uniform_or_array(properties["transport_porosity"]),
-        icbund=1,
+        # ICBUND mirrors IBOUND: a cell the flow model does not solve has no
+        # water to transport through, and leaving it active here makes MT3D
+        # report concentrations for cells that are not in the model.
+        icbund=1 if grid.idomain is None else grid.idomain,
         # FloPy takes the first component's initial concentration as ``sconc``
         # and every later one as ``sconc2``, ``sconc3`` and so on, rather than
         # as a list.
