@@ -81,8 +81,17 @@ test("a package can hold a second entry at its own rate", async ({ page }) => {
   await expect(page.getByText("unsaved")).toBeHidden({ timeout: 20_000 });
 });
 
-test("the model runs and its results can be scrubbed", async ({ page }) => {
+test("the model runs and its results can be scrubbed", async ({ page, request }) => {
   test.slow();
+
+  // Running needs an engine, and a fresh checkout or a CI job that has not
+  // fetched one does not have it. Skipped with the reason rather than failing
+  // as though the app were broken.
+  const doctor = await request.get("/api/v1/doctor").then((response) => response.json());
+  const checks = (doctor.checks ?? []) as { name: string; status: string }[];
+  const mf6 = checks.find((entry) => entry.name === "mf6");
+  test.skip(mf6?.status !== "ok", "mf6 not installed; run: mupstudio get-engines");
+
   await createColumn(page, "running");
 
   await page

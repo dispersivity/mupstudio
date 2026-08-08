@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from mupstudio import __version__
+from mupstudio.doctor import find_executable
 from mupstudio.server.app import static_bundle_available
+
+# Running a model needs an engine. Absent on a fresh checkout and on any CI
+# job that has not fetched one, where a hard failure would say nothing useful.
+NO_MF6 = find_executable("mf6") is None
 
 
 def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -83,6 +88,7 @@ class TestRun:
         assert result.stderr.strip()
 
     @pytest.mark.slow
+    @pytest.mark.skipif(NO_MF6, reason="mf6 not installed; run: mupstudio get-engines")
     def test_a_column_writes_runs_and_collects(self, tmp_path: Path) -> None:
         """The whole path, on the smallest model that exercises it."""
         created = run_cli("new", "headless", "--cells", "10", "--directory", str(tmp_path))
@@ -98,6 +104,7 @@ class TestRun:
         assert (tmp_path / "headless.mup" / "runs").exists()
 
     @pytest.mark.slow
+    @pytest.mark.skipif(NO_MF6, reason="mf6 not installed; run: mupstudio get-engines")
     def test_quiet_says_nothing_unless_something_is_wrong(self, tmp_path: Path) -> None:
         run_cli("new", "hush", "--cells", "10", "--directory", str(tmp_path))
 
