@@ -36,3 +36,7 @@ bin/
 .DS_Store
 .idea/
 .vscode/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/

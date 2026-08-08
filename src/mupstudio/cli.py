@@ -26,11 +26,26 @@ app = typer.Typer(
 STATUS_MARK = {"ok": "OK  ", "warn": "WARN", "fail": "FAIL"}
 
 
-def _free_port(preferred: int) -> int:
+def _free_port(preferred: int, *, strict: bool = False) -> int:
+    """The port to bind, moving off a busy one unless told not to.
+
+    Moving suits a person: the app opens and the address bar says where. It
+    does not suit anything scripted, which was told a port and is waiting on
+    it — there, a server that quietly went elsewhere looks exactly like a
+    server that never started.
+    """
     with socket.socket() as sock:
+        # The same option uvicorn sets before it binds. Without it a port left
+        # in TIME_WAIT by a server that has just exited looks taken, so a test
+        # harness restarting on a fixed port is told it is busy when it is not.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", preferred))
         except OSError:
+            if strict:
+                raise typer.BadParameter(
+                    f"port {preferred} is already in use", param_hint="--port"
+                ) from None
             sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
 
@@ -69,6 +84,9 @@ def serve(
     check: Annotated[
         bool, typer.Option(help="Start, verify /health and the frontend, then exit")
     ] = False,
+    strict_port: Annotated[
+        bool, typer.Option(help="Fail if the port is taken instead of picking another")
+    ] = False,
 ) -> None:
     """Run the local server and open the app."""
     import uvicorn
@@ -87,10 +105,10 @@ def serve(
         os.environ["MUPSTUDIO_DEV"] = "1"
 
     if check:
-        _serve_check(create_app(dev=dev), host=host, port=_free_port(port))
+        _serve_check(create_app(dev=dev), host=host, port=_free_port(port, strict=strict_port))
         return
 
-    chosen = _free_port(port)
+    chosen = _free_port(port, strict=strict_port)
     if chosen != port:
         typer.echo(f"port {port} is busy, using {chosen}")
     url = f"http://{host}:{chosen}"

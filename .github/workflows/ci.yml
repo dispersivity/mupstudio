@@ -136,6 +136,43 @@ jobs:
         env:
           MUPSTUDIO_DEV: "1"
 
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: uv sync
+      - run: pnpm --dir frontend install --frozen-lockfile
+
+      # Against the packaged app, not the dev server: the bundle being missing
+      # or stale is one of the things these tests exist to catch.
+      - run: pnpm --dir frontend build
+      - run: cp -r frontend/dist src/mupstudio/_static
+      - run: pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - run: pnpm --dir frontend e2e
+        env:
+          CI: "1"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces
+          path: frontend/test-results/
+          retention-days: 7
+
   wheel:
     timeout-minutes: 25
     runs-on: ubuntu-latest

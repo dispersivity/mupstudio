@@ -103,6 +103,22 @@ export async function createViewport(
     throw new Error("no WebGPU adapter available");
   }
   const device = await adapter.requestDevice();
+
+  // Attached before anything else is asked of the device, because everything
+  // between here and the first frame can fail: configuring the canvas,
+  // compiling the shader, building a pipeline. Dawn reports the first failure
+  // once and then only says "invalid due to a previous error" on everything
+  // after it, so a handler installed later never sees the one that matters.
+  device.addEventListener("uncapturederror", (event) => {
+    console.error("webgpu:", (event as GPUUncapturedErrorEvent).error.message);
+  });
+
+  // A lost device invalidates everything it made, including the canvas
+  // texture, so every later frame fails and the only visible symptom is a
+  // black rectangle.
+  void device.lost.then((info) => {
+    console.error(`webgpu: device lost (${info.reason}): ${info.message}`);
+  });
   const adapterName =
     [adapter.info?.vendor, adapter.info?.architecture, adapter.info?.description]
       .filter(Boolean)
@@ -126,21 +142,6 @@ export async function createViewport(
 
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "opaque" });
-
-  // Without this a validation error is a black rectangle and nothing else:
-  // Dawn reports the first failure here and then only says "invalid due to a
-  // previous error" on every console message that follows it.
-  device.addEventListener("uncapturederror", (event) => {
-    console.error("webgpu:", (event as GPUUncapturedErrorEvent).error.message);
-  });
-
-  // A lost device invalidates everything it made, including the canvas
-  // texture, so every later frame fails with "invalid due to a previous
-  // error" and the only visible symptom is a black rectangle. Saying so is
-  // the difference between a diagnosable fault and an inexplicable one.
-  void device.lost.then((info) => {
-    console.error(`webgpu: device lost (${info.reason}): ${info.message}`);
-  });
 
   const camera = new ArcballCamera();
   const module = device.createShaderModule({ code: prismShader, label: "prism" });
