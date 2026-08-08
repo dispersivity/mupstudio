@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createViewport } from "@/viewport";
+import type { Viewport } from "@/viewport/types";
 import { fetchCatalog, ViewportClient } from "@/net/viewportClient";
 import { FRAME_BUDGET_MS, measureFrameTimes, summarise, type PerfResult } from "./harness";
 
@@ -30,6 +31,10 @@ export function PerfPage({
     if (!canvas) return;
 
     let disposed = false;
+    // Held out here so cleanup can destroy it. Without that, StrictMode's
+    // second mount leaves the first viewport rendering to a canvas that now
+    // belongs to another device, and every frame after it is rejected.
+    let viewport: Viewport | null = null;
     const params = new URLSearchParams({
       ncpl: String(ncpl),
       nlay: String(nlay),
@@ -44,35 +49,39 @@ export function PerfPage({
         canvas.height = Math.floor(canvas.clientHeight * dpr);
 
         setStatus("starting WebGPU");
-        const viewport = await createViewport(canvas);
+        const view = (viewport = await createViewport(canvas));
+        if (disposed) {
+          view.destroy();
+          return;
+        }
 
         setStatus("building grid on the server");
         const catalog = await fetchCatalog("demo", params);
         await client.connect();
 
         setStatus(`uploading ${catalog.ncells.toLocaleString()} cells`);
-        viewport.setGrid(await client.getGeometry(catalog));
+        view.setGrid(await client.getGeometry(catalog));
 
         setStatus("uploading timesteps");
         const scalars = await client.getScalars(catalog.components[0].name, catalog);
-        viewport.setScalars(scalars);
+        view.setScalars(scalars);
         if (disposed) return;
 
         setStatus(`measuring ${frames} frames`);
-        const framesBefore = viewport.stats().frames;
+        const framesBefore = view.stats().frames;
         const samples = await measureFrameTimes(
           {
             step(frame) {
               // Fixed time schedule: the same work every run.
-              viewport.setTimestep(frame % scalars.timesteps.length);
+              view.setTimestep(frame % scalars.timesteps.length);
             },
-            renderAndWait: () => viewport.renderAndWait(),
+            renderAndWait: () => view.renderAndWait(),
           },
           { frames },
         );
         if (disposed) return;
 
-        const finalStats = viewport.stats();
+        const finalStats = view.stats();
         const summary = summarise(samples, {
           ncpl: catalog.ncpl,
           nlay: catalog.nlay,
@@ -96,6 +105,7 @@ export function PerfPage({
     return () => {
       disposed = true;
       client.close();
+      viewport?.destroy();
     };
   }, [ncpl, nlay, ntimes, frames]);
 

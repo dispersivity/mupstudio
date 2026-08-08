@@ -128,8 +128,11 @@ jobs:
             exit 1
           fi
 
+          # --budget-ms because this is a shared virtual machine, not the
+          # M-series Mac the 8.33 ms gate describes. The strict number is the
+          # default and is what `just perf` checks; see docs/perf-baseline.md.
           node frontend/scripts/perf.mjs --url http://localhost:5173 \
-            --ncpl 50000 --nlay 10 --frames 200 --channel chromium
+            --ncpl 50000 --nlay 10 --frames 200 --channel chromium --budget-ms 25
         env:
           MUPSTUDIO_DEV: "1"
 

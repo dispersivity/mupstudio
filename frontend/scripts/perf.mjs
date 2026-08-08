@@ -21,6 +21,11 @@ const ncpl = arg("ncpl", "50000");
 const nlay = arg("nlay", "10");
 const ntimes = arg("ntimes", "40");
 const frames = arg("frames", "600");
+// The 8.33 ms gate is a claim about a real GPU. A CI runner is a virtual
+// machine sharing a host, so holding it to the dev-machine number reports a
+// failure on every run and stops meaning anything; pass a looser one there and
+// keep the strict default for `just perf`.
+const budgetMs = Number(arg("budget-ms", "0")) || undefined;
 const headed = args.includes("--headed");
 
 // Playwright's bundled headless shell has no GPU and silently falls back to
@@ -52,7 +57,10 @@ await page.goto(target, { waitUntil: "domcontentloaded" });
 try {
   await page.waitForFunction(() => window.__mupPerf !== undefined, null, { timeout: 300_000 });
 } catch {
-  const status = await page.getByTestId("perf-status").textContent().catch(() => null);
+  const status = await page
+    .getByTestId("perf-status")
+    .textContent()
+    .catch(() => null);
   console.error(`perf run did not finish. last status: ${status ?? "unknown"}`);
   await browser.close();
   process.exit(1);
@@ -86,4 +94,15 @@ if (!result.valid) {
   );
 }
 
-process.exit(result.passed ? 0 : 1);
+// An override only decides pass or fail; the measured numbers above are
+// printed either way, and the budget the result carries is the real one.
+const passed = budgetMs ? result.valid && result.p95Ms <= budgetMs : result.passed;
+if (budgetMs) {
+  console.log(
+    passed
+      ? `PASS  p95 ${result.p95Ms} ms is within the ${budgetMs} ms budget for this machine`
+      : `FAIL  p95 ${result.p95Ms} ms exceeds the ${budgetMs} ms budget for this machine`,
+  );
+}
+
+process.exit(passed ? 0 : 1);

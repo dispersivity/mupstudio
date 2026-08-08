@@ -27,7 +27,10 @@ await page.getByLabel(/Create in/).fill(parent);
 await page.getByRole("button", { name: "Create project" }).click();
 await page.waitForSelector("text=starter column: mf6rtm", { timeout: 30000 });
 await page.screenshot({ path: `${shots}-project.png` });
-console.log("1. created:", await page.locator("text=/starter column: mf6rtm/").first().textContent());
+console.log(
+  "1. created:",
+  await page.locator("text=/starter column: mf6rtm/").first().textContent(),
+);
 
 // 2. Validate and write, then read a written file.
 await page.getByRole("button", { name: "Simulate" }).click();
@@ -55,7 +58,13 @@ await page.getByLabel("Timestep").fill("7");
 await page.waitForTimeout(1500);
 await page.screenshot({ path: `${shots}-field.png` });
 const range = await page.locator("text=/Auto from data/").first().isVisible();
-console.log("5. range inputs:", await page.getByLabel("Minimum").inputValue(), "to",
-            await page.getByLabel("Maximum").inputValue(), "| auto:", range);
+console.log(
+  "5. range inputs:",
+  await page.getByLabel("Minimum").inputValue(),
+  "to",
+  await page.getByLabel("Maximum").inputValue(),
+  "| auto:",
+  range,
+);
 
 await browser.close();

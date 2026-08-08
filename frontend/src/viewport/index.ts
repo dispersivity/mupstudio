@@ -56,10 +56,48 @@ interface GpuScalars {
   set: ScalarSet;
 }
 
+/**
+ * The viewport currently rendering to each canvas.
+ *
+ * A canvas can be bound to exactly one GPUDevice: `context.configure` replaces
+ * the binding, and the previous viewport's render loop then asks for a texture
+ * that belongs to the new device. WebGPU rejects the mismatch on every frame —
+ * "is associated with [Device], and cannot be used with [Device]" — and the
+ * canvas goes black with no other symptom.
+ *
+ * That is easy to cause and hard to see: React StrictMode mounts every effect
+ * twice, so any call site that forgets to destroy on cleanup gets two devices
+ * on one canvas. Rather than rely on each of them remembering, a canvas has
+ * one owner and creating a viewport takes ownership of it.
+ */
+const active = new WeakMap<HTMLCanvasElement, Viewport>();
+
+/**
+ * Which attempt to claim each canvas is the current one.
+ *
+ * Claimed synchronously, before the first await, because requesting a device
+ * takes long enough for a second attempt to start and finish first. Evicting
+ * "whatever is on the canvas" is not enough on its own: if the older attempt
+ * resolves last it evicts the newer one and leaves the canvas owned by a
+ * viewport its caller has already abandoned.
+ */
+const claims = new WeakMap<HTMLCanvasElement, number>();
+
+/** Thrown by the loser of a race for a canvas. Not an error worth showing. */
+export class ViewportSuperseded extends Error {
+  constructor() {
+    super("another viewport took this canvas first");
+    this.name = "ViewportSuperseded";
+  }
+}
+
 export async function createViewport(
   canvas: HTMLCanvasElement,
   options: ViewportOptions = {},
 ): Promise<Viewport> {
+  const claim = (claims.get(canvas) ?? 0) + 1;
+  claims.set(canvas, claim);
+
   const adapter = await navigator.gpu?.requestAdapter();
   if (!adapter) {
     throw new Error("no WebGPU adapter available");
@@ -74,6 +112,18 @@ export async function createViewport(
     throw new Error("could not get a webgpu context from the canvas");
   }
 
+  if (claims.get(canvas) !== claim) {
+    // A later call started while this one was waiting for a device. Configuring
+    // the context now would bind the canvas to a device whose owner is already
+    // gone, and every frame the winner draws would be rejected.
+    device.destroy();
+    throw new ViewportSuperseded();
+  }
+
+  // Before configuring, not after: the moment this canvas is bound to the new
+  // device, the previous viewport's next frame is invalid.
+  active.get(canvas)?.destroy();
+
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "opaque" });
 
@@ -82,6 +132,14 @@ export async function createViewport(
   // previous error" on every console message that follows it.
   device.addEventListener("uncapturederror", (event) => {
     console.error("webgpu:", (event as GPUUncapturedErrorEvent).error.message);
+  });
+
+  // A lost device invalidates everything it made, including the canvas
+  // texture, so every later frame fails with "invalid due to a previous
+  // error" and the only visible symptom is a black rectangle. Saying so is
+  // the difference between a diagnosable fault and an inexplicable one.
+  void device.lost.then((info) => {
+    console.error(`webgpu: device lost (${info.reason}): ${info.message}`);
   });
 
   const camera = new ArcballCamera();
@@ -609,7 +667,7 @@ export async function createViewport(
     publishCamera();
   });
 
-  return {
+  const viewport: Viewport = {
     setGrid(input) {
       uploadGeometry(input);
     },
@@ -701,6 +759,9 @@ export async function createViewport(
       };
     },
     destroy() {
+      // Only if this viewport still owns the canvas: a later one may already
+      // have taken it, and clearing the entry would lose the newcomer.
+      if (active.get(canvas) === viewport) active.delete(canvas);
       running = false;
       detachInput();
       cameraListeners.clear();
@@ -715,6 +776,9 @@ export async function createViewport(
       device.destroy();
     },
   };
+
+  active.set(canvas, viewport);
+  return viewport;
 }
 
 /** Mouse and wheel to camera moves. Returns a function that unbinds them. */
