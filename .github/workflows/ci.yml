@@ -129,27 +129,49 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      # Build the real bundle here; the hook only copies it into the wheel.
+      # Build the real bundle here; the hook only copies it into the artifacts.
       - run: pnpm --dir frontend install --frozen-lockfile
       - run: pnpm --dir frontend build
       - run: cp -r frontend/dist src/mupstudio/_static
 
-      - run: uv build
+      # Built separately rather than with a bare `uv build`, which builds the
+      # wheel from the sdist it just made. Each artifact is then one step with
+      # one thing that can go wrong, and the sdist-to-wheel path is tested
+      # below where that is the thing under test.
+      - run: uv build --sdist
+      - run: uv build --wheel
 
       - name: assert both artifacts carry the frontend
         run: |
           set -euo pipefail
           wheel=$(ls dist/*.whl)
-          unzip -l "$wheel" | grep -q 'mupstudio/_static/index.html'
-          unzip -l "$wheel" | grep -qE 'mupstudio/_static/assets/.*\.js'
-          echo "bundle present in $wheel"
-
-          # The sdist has to carry it too. `uv build` and `pip install .` build
-          # the wheel from the sdist, so a sdist without the bundle either
-          # produces a wheel without one or forces pnpm to run at install time.
           sdist=$(ls dist/*.tar.gz)
-          tar tzf "$sdist" | grep -q 'src/mupstudio/_static/index.html'
-          echo "bundle present in $sdist"
+
+          # Listed to files rather than piped into grep: `grep -q` exits on the
+          # first match, and under `pipefail` the SIGPIPE that gives the writer
+          # fails the step even when the file was found.
+          unzip -l "$wheel" > /tmp/wheel.txt
+          tar tzf "$sdist" > /tmp/sdist.txt
+
+          missing=0
+          check() {  # pattern, file, what
+            grep -qE "$1" "$2" || { echo "MISSING from $3: $1"; missing=1; }
+          }
+          check 'mupstudio/_static/index.html' /tmp/wheel.txt "the wheel"
+          check 'mupstudio/_static/assets/.*\.js' /tmp/wheel.txt "the wheel"
+          # The sdist has to carry it too, or `pip install --no-binary` runs pnpm.
+          check 'src/mupstudio/_static/index.html' /tmp/sdist.txt "the sdist"
+
+          if [ "$missing" = 1 ]; then
+            echo "--- _static entries in the wheel ---"
+            grep '_static' /tmp/wheel.txt || echo "(none)"
+            echo "--- _static entries in the sdist ---"
+            grep '_static' /tmp/sdist.txt || echo "(none)"
+            echo "--- what was on disk when they were built ---"
+            ls -la src/mupstudio/_static || echo "(_static absent)"
+            exit 1
+          fi
+          echo "bundle present in $wheel and $sdist"
 
       - name: a wheel builds from the sdist with no node installed
         run: |
@@ -163,7 +185,8 @@ jobs:
           cd /tmp/unpacked/mupstudio-*
           env -u MUPSTUDIO_SKIP_FRONTEND_BUILD PATH=/tmp/nonode:/usr/bin:/bin HOME="$HOME" \
             /tmp/nonode/uv build --wheel --out-dir /tmp/fromsdist .
-          unzip -l /tmp/fromsdist/*.whl | grep -q 'mupstudio/_static/index.html'
+          unzip -l /tmp/fromsdist/*.whl > /tmp/fromsdist.txt
+          grep -q 'mupstudio/_static/index.html' /tmp/fromsdist.txt
           echo "sdist builds a complete wheel without node"
 
       - uses: actions/upload-artifact@v4
