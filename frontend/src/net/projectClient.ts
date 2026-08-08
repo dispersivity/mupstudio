@@ -84,9 +84,9 @@ function json(body: unknown): RequestInit {
 }
 
 export const projects = {
-  list: () => request<{ projects: ProjectSummary[] }>("/projects"),
+  list: () => request<{ projects: ProjectSummary[]; defaultParent?: string }>("/projects"),
 
-  create: (body: { name: string; engine: string; parent?: string }) =>
+  create: (body: { name: string; engine: string; parent?: string; crs?: string | null }) =>
     request<{ project: ProjectSummary; detail: ProjectDetail }>("/projects", json(body)),
 
   open: (path: string) =>

@@ -40,11 +40,17 @@ PREVIEW_LIMIT = 200_000
 class NewProjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     engine: str = "mf6rtm"
-    parent: str | None = Field(default=None, description="Where to create it; cwd if omitted")
+    parent: str | None = Field(
+        default=None, description="Where to create it; a default folder if omitted"
+    )
     cells: int = Field(default=50, ge=1, le=100_000)
     length: float = Field(default=0.5, gt=0)
     perlen: float = Field(default=1.0, gt=0)
     nstp: int = Field(default=10, ge=1)
+    crs: str | None = Field(
+        default=None,
+        description="EPSG code; absent for a model with no real-world location",
+    )
     withBoundaries: bool = Field(
         default=True,
         description="Add inflow and outflow, so the project runs and shows something",
@@ -84,8 +90,11 @@ def load_project(path: str) -> Project:
 
 @router.get("/projects")
 def list_projects() -> dict[str, Any]:
-    """Projects this machine has opened before."""
-    return {"projects": [_summary(entry).model_dump() for entry in registry.entries()]}
+    """Projects this machine has opened before, and where new ones go."""
+    return {
+        "projects": [_summary(entry).model_dump() for entry in registry.entries()],
+        "defaultParent": str(registry.default_parent()),
+    }
 
 
 @router.post("/projects", status_code=201)
@@ -103,12 +112,25 @@ def create_project(request: NewProjectRequest) -> dict[str, Any]:
         nstp=request.nstp,
         with_boundaries=request.withBoundaries,
     )
+    if request.crs:
+        # Set here rather than edited in afterwards: the next step is Data, and
+        # importing anything needs to know where the model is.
+        project = project.model_copy(
+            update={"meta": project.meta.model_copy(update={"crs": request.crs})}
+        )
 
-    parent = Path(request.parent).expanduser() if request.parent else Path.cwd()
+    parent = Path(request.parent).expanduser() if request.parent else registry.default_parent()
+    parent.mkdir(parents=True, exist_ok=True)
+
     try:
         directory = projectstore.create(parent, request.name, project)
     except projectstore.ProjectError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+        # A name already used is the common case, and "it exists" alone leaves
+        # someone retyping the same thing. Say where, so the choice is obvious.
+        raise HTTPException(
+            status_code=409,
+            detail=f"{error}. Choose another name, or open the one that is there.",
+        ) from error
 
     entry = registry.remember(directory, name=project.meta.name, engine=project.meta.engine)
     return {"project": _summary(entry).model_dump(), "detail": describe(project)}

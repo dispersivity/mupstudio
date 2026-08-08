@@ -30,6 +30,21 @@ class ProjectEntry:
         return projectstore.is_project(self.path)
 
 
+def default_parent() -> Path:
+    """Where a new project goes when nobody says otherwise.
+
+    Not the working directory. A server started from a source checkout would
+    scatter project directories through it, and a server started by a desktop
+    launcher has a working directory nobody chose. A named folder under the
+    user's documents is somewhere a person can find again.
+    """
+    import platformdirs
+
+    documents = Path(platformdirs.user_documents_dir())
+    root = documents if documents.is_dir() else Path.home()
+    return root / "MUP Studio"
+
+
 def registry_path() -> Path:
     return config_dir() / "projects.toml"
 

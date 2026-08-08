@@ -10,15 +10,65 @@ import {
 } from "./editor/controls";
 import { ModelPreview } from "@/preview/ModelPreview";
 import { gridLimits, type Limits } from "./editor/grid";
+import {
+  BOUNDARY_PACKAGES,
+  flowPackages,
+  PACKAGE_FOR_KIND,
+  type PackageTab,
+} from "./editor/packages";
+import { PackageTabs } from "./editor/PackageTabs";
 import { useProjectDocument, type ProjectDocument } from "./editor/useProjectDocument";
 
-const PROPERTIES: { key: string; label: string; hint: string }[] = [
-  { key: "k", label: "Horizontal conductivity", hint: "K along the rows and columns" },
-  { key: "porosity", label: "Porosity", hint: "Used for flow storage and, by default, transport" },
-  { key: "specific_storage", label: "Specific storage", hint: "Only matters in transient periods" },
-  { key: "specific_yield", label: "Specific yield", hint: "Only used where cells can dewater" },
-  { key: "starting_head", label: "Starting head", hint: "The initial condition for flow" },
-];
+/**
+ * Which property each package holds.
+ *
+ * Grouped by the file MODFLOW writes rather than by what the value means: a
+ * modeller chasing an error reads the package name, and specific storage is in
+ * STO whether or not it feels like a property of the aquifer.
+ */
+const PACKAGE_PROPERTIES: Record<string, { key: string; label: string; hint: string }[]> = {
+  NPF: [
+    { key: "k", label: "Horizontal conductivity", hint: "K along the rows and columns" },
+    {
+      key: "porosity",
+      label: "Porosity",
+      hint: "Used for flow storage and, by default, transport",
+    },
+  ],
+  LPF: [
+    { key: "k", label: "Horizontal conductivity", hint: "K along the rows and columns" },
+    {
+      key: "porosity",
+      label: "Porosity",
+      hint: "Used for flow storage and, by default, transport",
+    },
+    {
+      key: "specific_storage",
+      label: "Specific storage",
+      hint: "Only matters in transient periods",
+    },
+    { key: "specific_yield", label: "Specific yield", hint: "Only used where cells can dewater" },
+  ],
+  STO: [
+    {
+      key: "specific_storage",
+      label: "Specific storage",
+      hint: "Only matters in transient periods",
+    },
+    { key: "specific_yield", label: "Specific yield", hint: "Only used where cells can dewater" },
+  ],
+  IC: [{ key: "starting_head", label: "Starting head", hint: "The head the solver starts from" }],
+  BAS: [{ key: "starting_head", label: "Starting head", hint: "The head the solver starts from" }],
+};
+
+/** The field the viewport draws when a package tab is opened. */
+const PACKAGE_FIELD: Record<string, string> = {
+  NPF: "k",
+  LPF: "k",
+  STO: "ss",
+  IC: "strt",
+  BAS: "strt",
+};
 
 /**
  * Boundary packages, named the way MODFLOW names them.
@@ -80,6 +130,7 @@ export function FlowStep({
 }) {
   const editor = useProjectDocument(path);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [tab, setTab] = useState<string | null>(null);
   // What the viewport draws. Opening a package points it at that package's
   // cells, so checking boundaries one by one is what the screen is for; the
   // picker above the canvas still allows anything else.
@@ -92,6 +143,10 @@ export function FlowStep({
   const grid = editor.document.grid;
   const nper = (editor.document.time.periods as unknown[]).length;
   const limits = gridLimits(grid);
+  const engine = editor.document.meta.engine as string;
+  const properties = flowPackages(engine);
+  const active = tab ?? properties[0].id;
+  const packages = flow.packages as ProjectDocument[];
 
   return (
     <EditorShell
@@ -116,183 +171,239 @@ export function FlowStep({
         />
       }
     >
-      <Section
-        field="k"
-        onShow={setDrawn}
-        title="Properties"
-        hint="One value everywhere for now. Values per zone arrive with the map-based builder."
-      >
-        <div className="grid max-w-2xl grid-cols-2 gap-x-8 gap-y-3">
-          {PROPERTIES.map((property) => (
-            <Labelled key={property.key} label={property.label} hint={property.hint}>
-              <NumberInput
-                value={flow.properties[property.key]?.value ?? 0}
-                label={property.label}
-                onCommit={(value) =>
-                  editor.edit((draft) => {
-                    draft.flow.properties[property.key] = { kind: "constant", value };
-                  })
-                }
-              />
-            </Labelled>
-          ))}
-          <Labelled
-            label="Vertical conductivity"
-            hint="Blank follows the horizontal value, which is what MODFLOW assumes."
-          >
-            <div className="flex items-center gap-2">
-              <NumberInput
-                value={flow.properties.k33?.value ?? flow.properties.k?.value ?? 0}
-                disabled={flow.properties.k33 === null}
-                label="Vertical conductivity"
-                onCommit={(value) =>
-                  editor.edit((draft) => {
-                    draft.flow.properties.k33 = { kind: "constant", value };
-                  })
-                }
-              />
-              <label className="flex items-center gap-1 text-[10px] text-zinc-500">
-                <input
-                  type="checkbox"
-                  checked={flow.properties.k33 === null}
-                  onChange={(event) =>
+      <PackageTabs
+        groups={[
+          { label: "Aquifer", tabs: properties },
+          { label: "Boundaries", tabs: BOUNDARY_PACKAGES },
+        ]}
+        active={active}
+        counts={boundaryCounts(packages)}
+        onSelect={(id) => {
+          setTab(id);
+          const field = PACKAGE_FIELD[id];
+          if (field) setDrawn(field);
+        }}
+      />
+
+      {PACKAGE_PROPERTIES[active] && (
+        <Section
+          field={PACKAGE_FIELD[active]}
+          onShow={setDrawn}
+          title={describePackage(active, properties)}
+          hint="One value everywhere for now. Values per zone arrive with the map-based builder."
+        >
+          <div className="grid max-w-2xl grid-cols-2 gap-x-8 gap-y-3">
+            {PACKAGE_PROPERTIES[active].map((property) => (
+              <Labelled key={property.key} label={property.label} hint={property.hint}>
+                <NumberInput
+                  value={flow.properties[property.key]?.value ?? 0}
+                  label={property.label}
+                  onCommit={(value) =>
                     editor.edit((draft) => {
-                      draft.flow.properties.k33 = event.target.checked
-                        ? null
-                        : { kind: "constant", value: draft.flow.properties.k.value };
+                      draft.flow.properties[property.key] = { kind: "constant", value };
                     })
                   }
                 />
-                follow K
-              </label>
-            </div>
-          </Labelled>
-          <Labelled
-            label="Cell type"
-            hint="Confined is the usual choice for a column; convertible lets cells dewater."
-          >
-            <Select
-              value={String(flow.properties.icelltype)}
-              label="Cell type"
-              options={[
-                { value: "0", label: "Confined" },
-                { value: "1", label: "Convertible" },
-              ]}
-              onChange={(value) =>
-                editor.edit((draft) => void (draft.flow.properties.icelltype = Number(value)))
-              }
-            />
-          </Labelled>
-        </div>
-      </Section>
-
-      <Section
-        title={`Boundaries (${(flow.packages as unknown[]).length})`}
-        hint={`Cells are named by index, counting from one. This grid has ${limits.layers} layer${
-          limits.layers === 1 ? "" : "s"
-        }, ${limits.rows} row${limits.rows === 1 ? "" : "s"} and ${limits.columns} column${
-          limits.columns === 1 ? "" : "s"
-        }.`}
-      >
-        {(flow.packages as ProjectDocument[]).length === 0 && (
-          <p className="mb-2 text-[11px] text-amber-300">
-            No boundaries: this model will run but nothing will flow.
-          </p>
-        )}
-
-        <ul className="max-w-3xl space-y-2">
-          {(flow.packages as ProjectDocument[]).map((item, index) => (
-            <li key={index} className="rounded border border-zinc-800">
-              <div className="flex items-center gap-3 px-3 py-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const opening = expanded !== item.id;
-                    setExpanded(opening ? item.id : null);
-                    if (opening) setDrawn(`boundary:${item.id}`);
-                  }}
-                  className="flex-1 text-left"
-                >
-                  <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
-                    {PACKAGE_NAME[item.kind] ?? item.kind.toUpperCase()}
-                  </span>
-                  <span className="ml-2 text-xs text-zinc-200">{item.id}</span>
-                  <span className="ml-2 text-[10px] text-zinc-600">{summarise(item, nper)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => editor.edit((draft) => void draft.flow.packages.splice(index, 1))}
-                  className="text-[10px] text-zinc-500 hover:text-red-400"
-                >
-                  remove
-                </button>
-              </div>
-
-              {expanded === item.id && (
-                <BoundaryEditor
-                  item={item}
-                  nper={nper}
-                  limits={limits}
-                  onEdit={(change) =>
-                    editor.edit((draft) => change(draft.flow.packages[index], draft))
+              </Labelled>
+            ))}
+            {(active === "NPF" || active === "LPF") && (
+              <Labelled
+                label="Vertical conductivity"
+                hint="Blank follows the horizontal value, which is what MODFLOW assumes."
+              >
+                <div className="flex items-center gap-2">
+                  <NumberInput
+                    value={flow.properties.k33?.value ?? flow.properties.k?.value ?? 0}
+                    disabled={flow.properties.k33 === null}
+                    label="Vertical conductivity"
+                    onCommit={(value) =>
+                      editor.edit((draft) => {
+                        draft.flow.properties.k33 = { kind: "constant", value };
+                      })
+                    }
+                  />
+                  <label className="flex items-center gap-1 text-[10px] text-zinc-500">
+                    <input
+                      type="checkbox"
+                      checked={flow.properties.k33 === null}
+                      onChange={(event) =>
+                        editor.edit((draft) => {
+                          draft.flow.properties.k33 = event.target.checked
+                            ? null
+                            : { kind: "constant", value: draft.flow.properties.k.value };
+                        })
+                      }
+                    />
+                    follow K
+                  </label>
+                </div>
+              </Labelled>
+            )}
+            {(active === "NPF" || active === "LPF") && (
+              <Labelled
+                label="Cell type"
+                hint="Confined is the usual choice for a column; convertible lets cells dewater."
+              >
+                <Select
+                  value={String(flow.properties.icelltype)}
+                  label="Cell type"
+                  options={[
+                    { value: "0", label: "Confined" },
+                    { value: "1", label: "Convertible" },
+                  ]}
+                  onChange={(value) =>
+                    editor.edit((draft) => void (draft.flow.properties.icelltype = Number(value)))
                   }
                 />
-              )}
-            </li>
-          ))}
-        </ul>
+              </Labelled>
+            )}
+          </div>
+        </Section>
+      )}
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {PACKAGES.map((item) => (
-            <button
-              key={item.kind}
-              type="button"
-              title={item.description}
-              onClick={() =>
-                editor.edit((draft) => {
-                  const created = newBoundary(item.kind, draft, limits);
-                  draft.flow.packages.push(created);
-                  setExpanded(created.id);
-                  setDrawn(`boundary:${created.id}`);
-                })
-              }
-              className="rounded border border-zinc-700 px-2 py-1 font-mono text-[10px] text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"
-            >
-              + {item.name}
-            </button>
-          ))}
-        </div>
-      </Section>
+      {isBoundary(active) && (
+        <Section
+          title={describePackage(active, BOUNDARY_PACKAGES)}
+          hint={`Cells are named by index, counting from one. This grid has ${limits.layers} layer${
+            limits.layers === 1 ? "" : "s"
+          }, ${limits.rows} row${limits.rows === 1 ? "" : "s"} and ${limits.columns} column${
+            limits.columns === 1 ? "" : "s"
+          }.`}
+        >
+          {packages.filter((item) => PACKAGE_FOR_KIND[item.kind] === active).length === 0 && (
+            <p className="mb-2 text-[11px] leading-relaxed text-zinc-600">
+              No {active} in this model.
+            </p>
+          )}
 
-      <Section title="Solver" hint="Loosen these only if the flow solution will not converge.">
-        <div className="grid max-w-xl grid-cols-2 gap-x-8 gap-y-3">
-          <Labelled label="Complexity">
-            <Select
-              value={flow.solver.complexity}
-              label="Solver complexity"
-              options={[
-                { value: "simple", label: "Simple" },
-                { value: "moderate", label: "Moderate" },
-                { value: "complex", label: "Complex" },
-              ]}
-              onChange={(value) =>
-                editor.edit((draft) => void (draft.flow.solver.complexity = value))
-              }
-            />
-          </Labelled>
-          <Labelled label="Outer closure">
-            <NumberInput
-              value={flow.solver.outer_dvclose}
-              label="Outer closure"
-              onCommit={(value) =>
-                editor.edit((draft) => void (draft.flow.solver.outer_dvclose = value))
-              }
-            />
-          </Labelled>
-        </div>
-      </Section>
+          <ul className="max-w-3xl space-y-2">
+            {packages.map((item, index) =>
+              PACKAGE_FOR_KIND[item.kind] !== active ? null : (
+                <li key={index} className="rounded border border-zinc-800">
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const opening = expanded !== item.id;
+                        setExpanded(opening ? item.id : null);
+                        if (opening) setDrawn(`boundary:${item.id}`);
+                      }}
+                      className="flex-1 text-left"
+                    >
+                      <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-sky-300">
+                        {PACKAGE_NAME[item.kind] ?? item.kind.toUpperCase()}
+                      </span>
+                      <span className="ml-2 text-xs text-zinc-200">{item.id}</span>
+                      <span className="ml-2 text-[10px] text-zinc-600">
+                        {summarise(item, nper)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        editor.edit((draft) => void draft.flow.packages.splice(index, 1))
+                      }
+                      className="text-[10px] text-zinc-500 hover:text-red-400"
+                    >
+                      remove
+                    </button>
+                  </div>
+
+                  {expanded === item.id && (
+                    <BoundaryEditor
+                      item={item}
+                      nper={nper}
+                      limits={limits}
+                      onEdit={(change) =>
+                        editor.edit((draft) => change(draft.flow.packages[index], draft))
+                      }
+                    />
+                  )}
+                </li>
+              ),
+            )}
+          </ul>
+
+          <button
+            type="button"
+            onClick={() =>
+              editor.edit((draft) => {
+                const created = newBoundary(kindFor(active), draft, limits);
+                draft.flow.packages.push(created);
+                setExpanded(created.id);
+                setDrawn(`boundary:${created.id}`);
+              })
+            }
+            className="mt-3 rounded border border-zinc-700 px-2 py-1 font-mono text-[10px] text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"
+          >
+            + {active}
+          </button>
+        </Section>
+      )}
+
+      {isSolver(active) && (
+        <Section title="Solver" hint="Loosen these only if the flow solution will not converge.">
+          <div className="grid max-w-xl grid-cols-2 gap-x-8 gap-y-3">
+            <Labelled label="Complexity">
+              <Select
+                value={flow.solver.complexity}
+                label="Solver complexity"
+                options={[
+                  { value: "simple", label: "Simple" },
+                  { value: "moderate", label: "Moderate" },
+                  { value: "complex", label: "Complex" },
+                ]}
+                onChange={(value) =>
+                  editor.edit((draft) => void (draft.flow.solver.complexity = value))
+                }
+              />
+            </Labelled>
+            <Labelled label="Outer closure">
+              <NumberInput
+                value={flow.solver.outer_dvclose}
+                label="Outer closure"
+                onCommit={(value) =>
+                  editor.edit((draft) => void (draft.flow.solver.outer_dvclose = value))
+                }
+              />
+            </Labelled>
+          </div>
+        </Section>
+      )}
     </EditorShell>
   );
+}
+
+/** Whether this tab is one of the boundary packages. */
+function isBoundary(id: string): boolean {
+  return BOUNDARY_PACKAGES.some((item) => item.id === id);
+}
+
+/** Whether this tab is the flow solver, which each engine names differently. */
+function isSolver(id: string): boolean {
+  return id === "IMS" || id === "PCG";
+}
+
+/** The boundary kind a package tab creates. */
+function kindFor(packageId: string): string {
+  const found = Object.entries(PACKAGE_FOR_KIND).find(([, id]) => id === packageId);
+  return found ? found[0] : "well";
+}
+
+/** How many instances of each boundary package the model has. */
+function boundaryCounts(packages: ProjectDocument[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of packages) {
+    const id = PACKAGE_FOR_KIND[item.kind];
+    if (id) counts[id] = (counts[id] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/** "NPF — Node property flow", the way the package list in a manual reads. */
+function describePackage(id: string, tabs: PackageTab[]): string {
+  const found = tabs.find((item) => item.id === id);
+  return found ? `${found.id} — ${found.label}` : id;
 }
 
 function summarise(item: ProjectDocument, nper: number): string {
