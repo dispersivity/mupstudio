@@ -33,6 +33,11 @@ struct Frame {
 @group(0) @binding(2) var<storage, read> botElev: array<f32>;
 @group(0) @binding(3) var colormap: texture_2d<f32>;
 @group(0) @binding(4) var colormapSampler: sampler;
+// One flag per cell: 1 where a cell is part of the selection being edited.
+//
+// A single element when nothing is selected, because WebGPU requires every
+// binding to be filled; `arrayLength` is what makes reading it safe either way.
+@group(0) @binding(5) var<storage, read> selected: array<u32>;
 
 // Swapped per timestep. Its own group so changing time rebinds one thing.
 @group(1) @binding(0) var<storage, read> scalars: array<f32>;
@@ -166,8 +171,29 @@ fn normalise(value: f32) -> f32 {
   return clamp((value - lo) / span, 0.0, 1.0);
 }
 
+// Whether this cell is in the selection currently being edited.
+fn isSelected(cell: u32) -> bool {
+  return cell < arrayLength(&selected) && selected[cell] == 1u;
+}
+
+// The colour a selected cell is drawn in.
+//
+// Amber rather than a colour from a map: it has to read as "this is what you
+// are choosing right now" against every colormap at once, including the ones
+// that use blue and the ones that use red. A hue no scientific colormap ends
+// on is the only one that can never be mistaken for data.
+const SELECTED = vec3<f32>(0.98, 0.68, 0.13);
+
 @fragment
 fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
+  // Before the absent test: a cell just clicked is usually one the field
+  // being drawn has no value for, and it has to show anyway. That is the whole
+  // point of clicking it.
+  if (isSelected(input.cellId)) {
+    let base = select(SELECTED, mix(SELECTED, vec3<f32>(1.0), 0.25), isAbsent(input.value));
+    return vec4<f32>(base * input.shade, 1.0);
+  }
+
   if (isAbsent(input.value)) {
     // A field that applies to a handful of cells needs the rest for context: a
     // single bright cell floating in space says nothing about where it is. Drawn
@@ -189,6 +215,12 @@ fn fragmentMain(input: VertexOut) -> @location(0) vec4<f32> {
 // whatever the axis scaling is, and needs no geometry of its own.
 @fragment
 fn fragmentEdge(input: VertexOut) -> @location(0) vec4<f32> {
+  if (isSelected(input.cellId)) {
+    // A darker version of the fill, so a run of selected cells still reads as
+    // separate cells rather than one amber blob.
+    return vec4<f32>(SELECTED * 0.35, 1.0);
+  }
+
   if (isAbsent(input.value)) {
     // Ghosted cells keep their outlines. Without them the shell is a
     // featureless block, and a section drawn as one solid grey rectangle hides
@@ -207,7 +239,12 @@ fn fragmentEdge(input: VertexOut) -> @location(0) vec4<f32> {
 // from a click on cell 0.
 @fragment
 fn fragmentPick(input: VertexOut) -> @location(0) u32 {
-  if (isAbsent(input.value)) {
+  // Pickable exactly when visible. A boundary field leaves almost every cell
+  // absent, and those cells are still drawn as the ghost shell — so a rule
+  // that discarded them here would make every cell but the two already in the
+  // package unclickable, which is the opposite of what picking is for.
+  let ghosted = frame.gridInfo.w > 0.5;
+  if (isAbsent(input.value) && !ghosted && !isSelected(input.cellId)) {
     discard;
   }
   return input.cellId + 1u;

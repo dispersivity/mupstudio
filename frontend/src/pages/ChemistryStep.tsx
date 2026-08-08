@@ -11,6 +11,7 @@ import { DatabasePanel } from "@/chem/DatabasePanel";
 import { SolutionsPanel } from "@/chem/SolutionsPanel";
 import { BoundaryPanel, OutputPanel, ZonesPanel } from "@/chem/ZonesPanel";
 import { ModelPreview } from "@/preview/ModelPreview";
+import { toggleCell, type CellTriple } from "@/pages/editor/selection";
 import { EditorShell, NoProject } from "./editor/controls";
 import { cellCount, gridLimits } from "./editor/grid";
 import { useProjectDocument } from "./editor/useProjectDocument";
@@ -64,6 +65,9 @@ export function ChemistryStep({
 }) {
   const editor = useProjectDocument(path);
   const [tab, setTab] = useState<Tab>("solutions");
+  // Which chemistry zone clicks in the viewport are going into. One at a time,
+  // so a click always means one thing.
+  const [pickingZone, setPickingZone] = useState<number | null>(null);
 
   const chemistry = editor.document?.chemistry ?? null;
   const enabled = Boolean(chemistry?.enabled);
@@ -108,6 +112,20 @@ export function ChemistryStep({
           path={path}
           revision={editor.revision}
           initialField="chemistry:solution"
+          picking={
+            pickingZone === null
+              ? null
+              : {
+                  cells: (chemistry.zones?.[pickingZone]?.cells?.indices ?? []) as CellTriple[],
+                  onToggle: (cell) =>
+                    editor.edit((draft) => {
+                      const selection = draft.chemistry.zones[pickingZone].cells;
+                      if (selection?.kind === "list") {
+                        selection.indices = toggleCell(selection.indices as CellTriple[], cell);
+                      }
+                    }),
+                }
+          }
           className="h-full"
         />
       }
@@ -197,7 +215,23 @@ export function ChemistryStep({
           {tab === "surface" && <SurfacePanel chemistry={chemistry} index={index} edit={edit} />}
           {tab === "kinetics" && <KineticsPanel chemistry={chemistry} index={index} edit={edit} />}
           {tab === "gases" && <GasesPanel chemistry={chemistry} index={index} edit={edit} />}
-          {tab === "zones" && <ZonesPanel chemistry={chemistry} limits={limits} edit={edit} />}
+          {tab === "zones" && (
+            <ZonesPanel
+              chemistry={chemistry}
+              limits={limits}
+              edit={edit}
+              path={path}
+              sources={((editor.document?.data?.sources ?? []) as Record<string, unknown>[]).map(
+                (item) => ({
+                  id: item.id as string,
+                  name: item.name as string,
+                  geometry: item.geometry as string | undefined,
+                }),
+              )}
+              pickingZone={pickingZone}
+              onPick={setPickingZone}
+            />
+          )}
           {tab === "boundaries" && (
             <BoundaryPanel chemistry={chemistry} packages={packages} edit={edit} />
           )}

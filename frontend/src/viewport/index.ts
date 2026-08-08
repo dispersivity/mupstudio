@@ -77,6 +77,13 @@ export async function createViewport(
   const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "opaque" });
 
+  // Without this a validation error is a black rectangle and nothing else:
+  // Dawn reports the first failure here and then only says "invalid due to a
+  // previous error" on every console message that follows it.
+  device.addEventListener("uncapturederror", (event) => {
+    console.error("webgpu:", (event as GPUUncapturedErrorEvent).error.message);
+  });
+
   const camera = new ArcballCamera();
   const module = device.createShaderModule({ code: prismShader, label: "prism" });
 
@@ -92,6 +99,7 @@ export async function createViewport(
       { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
     ],
   });
 
@@ -194,6 +202,17 @@ export async function createViewport(
   let geometry: GpuGeometry | null = null;
   let scalars: GpuScalars | null = null;
   let frameBindGroup: GPUBindGroup | null = null;
+  // Which cells are in the selection being edited. One element while nothing is
+  // selected: WebGPU requires the binding to be filled either way, and the
+  // shader guards on its length.
+  let selectionBuffer = device.createBuffer({
+    label: "selection",
+    size: 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  // Kept alongside so a change writes into the same buffer rather than
+  // replacing it; see setSelection for why that matters.
+  let selectionFlags = new Uint32Array(0);
   let depthTexture: GPUTexture | null = null;
   let pickTexture: GPUTexture | null = null;
   let pickDepth: GPUTexture | null = null;
@@ -304,8 +323,46 @@ export async function createViewport(
         { binding: 2, resource: { buffer: geometry.botBuffer } },
         { binding: 3, resource: colormapTexture.createView() },
         { binding: 4, resource: sampler },
+        { binding: 5, resource: { buffer: selectionBuffer } },
       ],
     });
+  }
+
+  /**
+   * Mark cells as part of the selection being edited.
+   *
+   * Uploaded as a flag per cell rather than as a list, because the shader asks
+   * "is this one selected" per fragment and a list would mean a search there.
+   * A megabyte or two per change is nothing at the rate a person clicks.
+   *
+   * Written in place rather than reallocated. The first version destroyed the
+   * buffer and rebuilt the bind group on every call, which invalidated the
+   * command buffer of a pick that was still in flight — so clicking a cell
+   * cancelled the very readback that was meant to tell us which cell it was.
+   */
+  function setSelection(cells: Uint32Array | null) {
+    if (!geometry) return;
+
+    const total = geometry.ncpl * geometry.nlay;
+    if (selectionFlags.length !== total) {
+      selectionFlags = new Uint32Array(total);
+      selectionBuffer.destroy();
+      selectionBuffer = device.createBuffer({
+        label: "selection",
+        size: Math.max(selectionFlags.byteLength, 4),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      rebuildFrameBindGroup();
+    } else {
+      selectionFlags.fill(0);
+    }
+
+    for (const cell of cells ?? []) {
+      if (cell < total) selectionFlags[cell] = 1;
+    }
+
+    device.queue.writeBuffer(selectionBuffer, 0, selectionFlags);
+    dirty = true;
   }
 
   /**
@@ -612,6 +669,7 @@ export async function createViewport(
       publishCamera();
     },
     pick: pickAt,
+    setSelection,
     onCamera(listener) {
       cameraListeners.add(listener);
       // Fire once so a subscriber starts from the current view rather than

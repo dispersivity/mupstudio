@@ -2,6 +2,7 @@ import { useState } from "react";
 import { transportPackages } from "./editor/packages";
 import { PackageTabs } from "./editor/PackageTabs";
 import { EditorShell, Labelled, NoProject, NumberInput, Section, Select } from "./editor/controls";
+import { PropertyValue } from "./editor/PropertyValue";
 import { ModelPreview } from "@/preview/ModelPreview";
 import { useProjectDocument, type ProjectDocument } from "./editor/useProjectDocument";
 
@@ -40,6 +41,12 @@ export function TransportStep({
   const transport = editor.document.transport;
   const dispersion = transport.dispersion;
   const flowPorosity = editor.document.flow.properties.porosity?.value ?? 0;
+  // The project's zones, so transport can vary porosity over the same regions
+  // flow varies conductivity over. Drawn on the Flow step; used here.
+  const zones = ((editor.document.zones ?? []) as Record<string, unknown>[]).map((zone) => ({
+    id: zone.id as string,
+    label: zone.label as string | undefined,
+  }));
   const engine = editor.document.meta.engine;
   const longitudinal = dispersion.longitudinal?.value ?? 0;
   const tabs = transportPackages(engine);
@@ -86,18 +93,17 @@ export function TransportStep({
           hint="Transport can use a different porosity from flow, for instance an effective porosity that excludes dead-end pores."
         >
           <div className="flex max-w-md items-end gap-3">
-            <Labelled label="Transport porosity">
-              <NumberInput
-                value={transport.porosity?.value ?? flowPorosity}
-                disabled={transport.porosity === null}
+            <div className="flex-1">
+              <PropertyValue
                 label="Transport porosity"
-                onCommit={(value) =>
-                  editor.edit((draft) => {
-                    draft.transport.porosity = { kind: "constant", value };
-                  })
+                field={transport.porosity}
+                inherited={flowPorosity}
+                zones={zones}
+                onChange={(next) =>
+                  editor.edit((draft) => void (draft.transport.porosity = next))
                 }
               />
-            </Labelled>
+            </div>
             <label className="flex items-center gap-1 pb-1 text-[10px] text-zinc-500">
               <input
                 type="checkbox"

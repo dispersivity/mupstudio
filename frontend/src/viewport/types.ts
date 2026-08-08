@@ -114,6 +114,11 @@ export interface Viewport {
    * angle and costs nothing when nobody is clicking.
    */
   pick(x: number, y: number): Promise<PickedCell | null>;
+  /**
+   * Highlight the cells of a selection being edited, by global cell index
+   * (`layer * ncpl + cellInLayer`). Null or empty clears it.
+   */
+  setSelection(cells: Uint32Array | null): void;
   frameAll(): void;
   requestRender(): void;
   /**

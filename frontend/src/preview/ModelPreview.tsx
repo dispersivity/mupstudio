@@ -5,6 +5,7 @@ import type { Viewport } from "@/viewport/types";
 import { Colorbar } from "@/viewport-host/Colorbar";
 import { defaultSlice, formatExaggeration, verticalExaggeration, type Slice } from "./slice";
 import { ViewControls } from "./ViewControls";
+import { cellFromPick, type CellTriple } from "@/pages/editor/selection";
 
 /**
  * The model being edited, drawn.
@@ -48,6 +49,14 @@ export function ModelPreview({
    */
   field: controlled,
   onFieldChange,
+  /**
+   * Cells being chosen, and what to do when one is clicked.
+   *
+   * Present only while a selection is being edited. The cells are highlighted
+   * whatever field is on show, because a cell just clicked is usually one the
+   * drawn field has no value for yet, and it has to be visible anyway.
+   */
+  picking,
   className = "",
 }: {
   path: string | null;
@@ -55,6 +64,7 @@ export function ModelPreview({
   initialField?: string;
   field?: string | null;
   onFieldChange?: (field: string) => void;
+  picking?: { cells: CellTriple[]; onToggle: (cell: CellTriple) => void } | null;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -78,6 +88,9 @@ export function ModelPreview({
     notify.current?.(next);
   }, []);
   const [range, setRange] = useState<[number, number]>([0, 1]);
+  // Where a press started, so the release can tell a click from a drag that
+  // happened to end over a cell.
+  const pressed = useRef<{ x: number; y: number } | null>(null);
   const [showEdges, setShowEdges] = useState(true);
   const [slice, setSlice] = useState<Slice | null>(null);
   // Null means "whatever suits this view"; a number means the user chose.
@@ -184,6 +197,58 @@ export function ModelPreview({
     };
   }, [field, catalog, status, datasetId]);
 
+  // Selected cells, as the global indices the viewport marks them by.
+  //
+  // Keyed on the contents rather than on `picking`, which is an object literal
+  // rebuilt on every render: depending on its identity would re-upload the
+  // selection continuously for as long as the picker was open.
+  const pickedKey = picking ? JSON.stringify(picking.cells) : "";
+  const selectedCells = useMemo(() => {
+    const columns = catalog?.ncol ?? 0;
+    const rows = catalog?.nrow ?? 0;
+    if (!pickedKey || columns === 0) return null;
+    const cells = JSON.parse(pickedKey) as CellTriple[];
+    return new Uint32Array(
+      cells.map(
+        ([layer, row, column]) =>
+          (layer - 1) * rows * columns + (row - 1) * columns + (column - 1),
+      ),
+    );
+  }, [pickedKey, catalog]);
+
+  useEffect(() => {
+    if (status !== "ready") return;
+    viewportRef.current?.setSelection(selectedCells);
+  }, [selectedCells, status]);
+
+  /**
+   * Turn a click into a cell.
+   *
+   * A press that moved is a drag that turned or panned the view, and treating
+   * its release as a click would select a cell every time the camera moved.
+   */
+  const pickHere = async (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const start = pressed.current;
+    pressed.current = null;
+
+    const viewport = viewportRef.current;
+    const columns = catalog?.ncol ?? 0;
+    if (!start || !picking || !viewport || columns === 0) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
+
+    const canvas = event.currentTarget;
+    const bounds = canvas.getBoundingClientRect();
+    // The canvas is sized in device pixels and laid out in CSS pixels, so the
+    // click has to be converted before the pick pass can use it.
+    const scale = canvas.width / bounds.width;
+
+    const found = await viewport.pick(
+      (event.clientX - bounds.left) * scale,
+      (event.clientY - bounds.top) * scale,
+    );
+    if (found) picking.onToggle(cellFromPick(found, columns));
+  };
+
   // `status` is a dependency because a save rebuilds the viewport from scratch,
   // and a fresh one starts at its own defaults. Without it these settings are
   // pushed once and silently lost the first time the project is edited.
@@ -240,7 +305,10 @@ export function ModelPreview({
   // single bright cell floating in space says nothing about where it is. Decided
   // from the coverage the dataset reports rather than from the field's name,
   // because a zone painted over every cell needs no shell either.
-  const sparse = current !== undefined && current.setCells < (catalog?.ncells ?? 0);
+  // Forced on while picking: choosing cells means seeing the ones that have no
+  // value yet, and those are exactly the cells the shell draws.
+  const sparse =
+    picking != null || (current !== undefined && current.setCells < (catalog?.ncells ?? 0));
   useEffect(() => {
     viewportRef.current?.setGhostAbsent(sparse);
   }, [sparse, field, status]);
@@ -337,8 +405,16 @@ export function ModelPreview({
 
       <div className="relative min-h-0 flex-1">
         {/* Orbit, pan and zoom are handled inside the viewport module, which
-            owns the arcball; the canvas needs no handlers of its own. */}
-        <canvas ref={canvasRef} className="block h-full w-full touch-none" />
+            owns the arcball. The only handler here is the click that picks a
+            cell, and it has to tell a click from the end of a drag. */}
+        <canvas
+          ref={canvasRef}
+          onPointerDown={(event) => {
+            pressed.current = picking ? { x: event.clientX, y: event.clientY } : null;
+          }}
+          onPointerUp={(event) => void pickHere(event)}
+          className={`block h-full w-full touch-none ${picking ? "cursor-crosshair" : ""}`}
+        />
 
         {status !== "ready" && (
           <div className="absolute inset-0 flex items-center justify-center p-4">

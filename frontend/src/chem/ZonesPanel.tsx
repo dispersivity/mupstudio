@@ -1,8 +1,9 @@
 import type { Limits } from "@/pages/editor/grid";
 import type { DatabaseIndex } from "./database";
 import { AddFromDatabase, Chooser, RowButton } from "./pickers";
-import { estimateSize, parseIndices, uniqueId } from "./edits";
+import { estimateSize, uniqueId } from "./edits";
 import { Empty } from "./Empty";
+import { CellSelector } from "@/pages/editor/CellSelector";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Chemistry = Record<string, any>;
@@ -36,10 +37,20 @@ export function ZonesPanel({
   chemistry,
   limits,
   edit,
+  sources = [],
+  path = null,
+  pickingZone = null,
+  onPick = () => {},
 }: {
   chemistry: Chemistry;
   limits: Limits;
   edit: Edit;
+  /** Imported shapes a zone can be drawn from. */
+  sources?: { id: string; name: string; geometry?: string }[];
+  path?: string | null;
+  /** Index of the zone whose cells clicks are going into, or null. */
+  pickingZone?: number | null;
+  onPick?: (index: number | null) => void;
 }) {
   const compositions = chemistry.compositions ?? [];
 
@@ -173,7 +184,15 @@ export function ZonesPanel({
         </div>
       </div>
 
-      <ZoneList chemistry={chemistry} limits={limits} edit={edit} />
+      <ZoneList
+        chemistry={chemistry}
+        limits={limits}
+        edit={edit}
+        sources={sources}
+        path={path}
+        pickingZone={pickingZone}
+        onPick={onPick}
+      />
     </div>
   );
 }
@@ -207,10 +226,18 @@ function ZoneList({
   chemistry,
   limits,
   edit,
+  sources,
+  path,
+  pickingZone,
+  onPick,
 }: {
   chemistry: Chemistry;
   limits: Limits;
   edit: Edit;
+  sources: { id: string; name: string; geometry?: string }[];
+  path: string | null;
+  pickingZone: number | null;
+  onPick: (index: number | null) => void;
 }) {
   const zones = chemistry.zones ?? [];
   const compositions = chemistry.compositions ?? [];
@@ -257,24 +284,24 @@ function ZoneList({
               />
             </label>
 
-            {(["layers", "rows", "columns"] as const).map((axis) => (
-              <label key={axis} className="block w-36">
-                <span className="mb-1 block text-[10px] capitalize text-zinc-500">
-                  {axis} <span className="text-zinc-700">1–{limits[axis]}</span>
-                </span>
-                <input
-                  defaultValue={(zone.cells?.[axis] ?? []).join(", ")}
-                  aria-label={`${axis} of zone ${zone.id}`}
-                  placeholder="1, 2, 5-9"
-                  onBlur={(event) =>
-                    edit((draft) => {
-                      draft.zones[row].cells[axis] = parseIndices(event.target.value);
-                    })
-                  }
-                  className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-[11px] text-zinc-100 focus:border-sky-600 focus:outline-none"
-                />
-              </label>
-            ))}
+            <div className="w-full">
+              {/* The same control the flow boundaries and property zones use.
+                  Where a water composition applies is the same question as
+                  where a conductivity applies, and it had two answers. */}
+              <CellSelector
+                selection={zone.cells}
+                limits={limits}
+                sources={sources}
+                path={path}
+                picking={pickingZone === row}
+                onPick={(on) => onPick(on ? row : null)}
+                onChange={(selection) =>
+                  edit((draft) => {
+                    draft.zones[row].cells = selection;
+                  })
+                }
+              />
+            </div>
 
             <div className="ml-auto">
               <RowButton

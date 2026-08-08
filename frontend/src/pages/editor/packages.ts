@@ -67,6 +67,19 @@ const FLOW_PACKAGES: Record<Engine, PackageTab[]> = {
 };
 
 /** Boundary packages. Both engines call these the same thing. */
+/**
+ * Zones are not a MODFLOW package, but they belong beside the property tabs.
+ *
+ * Every property tab can send a value to a zone, so the place zones are drawn
+ * has to be one click away from the place they are used. Giving them their own
+ * step would put the outline and the number that fills it on different screens.
+ */
+export const ZONES_TAB: PackageTab = {
+  id: "ZONES",
+  label: "Zones",
+  purpose: "Named parts of the grid that properties can vary over.",
+};
+
 export const BOUNDARY_PACKAGES: PackageTab[] = [
   { id: "WEL", label: "Well", purpose: "Injection or extraction at named cells." },
   {
