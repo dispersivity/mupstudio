@@ -16,6 +16,7 @@ env:
 
 jobs:
   lint:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +43,7 @@ jobs:
       - run: pnpm --dir frontend typecheck
 
   test-backend:
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +64,7 @@ jobs:
       - run: uv run pytest -q --cov=mupstudio --cov-report=term-missing
 
   test-frontend:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,6 +87,11 @@ jobs:
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
     runs-on: macos-14
     continue-on-error: true
+    # This job starts two servers and drives a browser, so every part of it can
+    # hang rather than fail. It has, for half an hour at a time, on a runner
+    # billed at ten times the linux rate — and because it is advisory the run
+    # never went red, it just never finished.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -105,15 +113,26 @@ jobs:
       - name: run the frame-time harness
         run: |
           set -euo pipefail
-          uv run uvicorn mupstudio.server.app:create_app --factory --port 8000 &
-          pnpm --dir frontend dev --port 5173 &
-          npx wait-on http://127.0.0.1:8000/api/v1/health http://localhost:5173
+          uv run uvicorn mupstudio.server.app:create_app --factory --port 8000 > /tmp/api.log 2>&1 &
+          pnpm --dir frontend dev --port 5173 > /tmp/vite.log 2>&1 &
+
+          # A server that dies leaves wait-on blocking forever, which is a
+          # hung job rather than a failed one. Two minutes is far longer than
+          # either takes to start, and the logs say which one did not.
+          if ! npx wait-on --timeout 120000 \
+              http://127.0.0.1:8000/api/v1/health http://localhost:5173; then
+            echo "--- api ---"; cat /tmp/api.log
+            echo "--- vite ---"; cat /tmp/vite.log
+            exit 1
+          fi
+
           node frontend/scripts/perf.mjs --url http://localhost:5173 \
             --ncpl 50000 --nlay 10 --frames 200 --channel chromium
         env:
           MUPSTUDIO_DEV: "1"
 
   wheel:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -195,6 +214,7 @@ jobs:
           path: dist/*.whl
 
   install-smoke:
+    timeout-minutes: 15
     needs: wheel
     strategy:
       fail-fast: false
