@@ -1,0 +1,15 @@
+[meta]
+name = "/private/tmp/claude-501/-Users-portega-dev-code-mupstudio/a7828c49-0c3c-4f8a-8ca5-26f204ffb181/scratchpad/cli-run.mup"
+engine = "mf6rtm"
+schema_version = 1
+description = "A 1D column: water and solute enter one end and leave the other."
+length_unit = "meters"
+time_unit = "days"
+created = "2026-08-08T13:47:09+00:00"
+modified = "2026-08-08T13:47:09+00:00"
+
+[[time.periods]]
+perlen = 1.0
+nstp = 10
+tsmult = 1.0
+steady = false

@@ -1,0 +1,26 @@
+zones = []
+
+[grid]
+kind = "structured"
+origin_x = 0.0
+origin_y = 0.0
+rotation = 0.0
+
+[grid.columns]
+ncells = 50
+total_length = 0.5
+
+[grid.rows]
+ncells = 1
+total_length = 1.0
+
+[grid.top]
+kind = "constant"
+value = 0.0
+
+[[grid.layers]]
+sublayers = 1
+minimum_thickness = 0.0
+[grid.layers.bottom]
+kind = "constant"
+value = -1.0

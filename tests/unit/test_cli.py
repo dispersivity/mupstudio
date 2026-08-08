@@ -58,3 +58,50 @@ def test_serve_check_passes_with_a_bundle() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "serve --check passed" in result.stdout
+
+
+class TestRun:
+    """Building and running a model with nobody at a screen.
+
+    This is what a sensitivity sweep, a CI regression check and an e2e test all
+    go through, so its exit code has to mean something without anyone parsing
+    the output.
+    """
+
+    def test_a_missing_project_is_said_plainly_and_exits_two(self, tmp_path: Path) -> None:
+        result = run_cli("run", str(tmp_path / "nowhere.mup"))
+
+        assert result.returncode == 2
+        assert "does not exist" in result.stderr
+
+    def test_a_directory_that_is_not_a_project_is_refused(self, tmp_path: Path) -> None:
+        (tmp_path / "empty.mup").mkdir()
+
+        result = run_cli("run", str(tmp_path / "empty.mup"))
+
+        assert result.returncode == 2
+        assert result.stderr.strip()
+
+    @pytest.mark.slow
+    def test_a_column_writes_runs_and_collects(self, tmp_path: Path) -> None:
+        """The whole path, on the smallest model that exercises it."""
+        created = run_cli("new", "headless", "--cells", "10", "--directory", str(tmp_path))
+        assert created.returncode == 0, created.stderr
+
+        result = run_cli("run", str(tmp_path / "headless.mup"))
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "run succeeded" in result.stdout
+        assert "collected" in result.stdout
+        # The results store is what the viewport reads; a run that produced
+        # nothing readable is not a run that succeeded.
+        assert (tmp_path / "headless.mup" / "runs").exists()
+
+    @pytest.mark.slow
+    def test_quiet_says_nothing_unless_something_is_wrong(self, tmp_path: Path) -> None:
+        run_cli("new", "hush", "--cells", "10", "--directory", str(tmp_path))
+
+        result = run_cli("run", str(tmp_path / "hush.mup"), "--quiet")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == ""

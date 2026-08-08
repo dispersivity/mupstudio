@@ -1,0 +1,24 @@
+[chemistry]
+enabled = false
+solutions = []
+equilibrium_phases = []
+exchange = []
+surface = []
+kinetics = []
+gas_phases = []
+compositions = []
+zones = []
+
+[chemistry.database]
+name = "phreeqc.dat"
+
+[chemistry.boundary_solutions]
+[chemistry.selected_output]
+totals = []
+molalities = []
+saturation_indices = []
+equilibrium_phases = []
+kinetic_reactants = []
+gases = []
+ph = true
+pe = true

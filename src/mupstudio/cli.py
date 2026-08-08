@@ -218,6 +218,98 @@ def show_project(
         typer.echo("  boundaries: none yet")
 
 
+@app.command("run")
+def run_model(
+    project: Annotated[Path, typer.Argument(help="A .mup project directory")],
+    collect: Annotated[
+        bool, typer.Option(help="Read the output into the results store afterwards")
+    ] = True,
+    quiet: Annotated[bool, typer.Option(help="Only report the outcome")] = False,
+) -> None:
+    """Write, run and collect a project without opening the app.
+
+    The point of this command is everything that is not a person at a screen:
+    a sensitivity sweep over twenty copies of a project, a regression check in
+    CI, a model queued on a machine with no browser. It uses the same writers
+    and the same runner the app does, so a model that runs here runs there.
+
+    Exits non-zero if the engine does, which is what makes it usable in a
+    script without parsing anything.
+    """
+    import asyncio
+
+    asyncio.run(_run_and_wait(project, collect=collect, quiet=quiet))
+
+
+async def _run_and_wait(project: Path, *, collect: bool, quiet: bool) -> None:
+    import asyncio
+
+    from mupstudio.jobs.registry import RunRegistry
+    from mupstudio.server.routers.projects import run_project
+    from mupstudio.server.routers.runs import collect_run
+
+    directory = project.expanduser().resolve()
+    if not directory.exists():
+        typer.echo(f"{directory} does not exist", err=True)
+        raise typer.Exit(code=2)
+
+    def say(message: str) -> None:
+        if not quiet:
+            typer.echo(message)
+
+    say(f"writing {directory.name}")
+    try:
+        started = await run_project(str(directory))
+    except Exception as error:
+        typer.echo(f"could not start: {_reason(error)}", err=True)
+        raise typer.Exit(code=2) from error
+
+    run_id = str(started["runId"])
+    say(f"run {run_id} started")
+
+    registry = RunRegistry()
+    seen = ""
+    while True:
+        record = registry.get(run_id)
+        if record is None:
+            typer.echo(f"run {run_id} vanished from the registry", err=True)
+            raise typer.Exit(code=2)
+        if record.state not in ("queued", "running"):
+            break
+        # Polling rather than subscribing: the event bus is wired to the
+        # websocket hub, and a command-line run should not need a server.
+        if not quiet and record.message and record.message != seen:
+            seen = record.message
+            typer.echo(f"  {seen}")
+        await asyncio.sleep(0.5)
+
+    failed = record.state != "succeeded"
+    say(f"run {record.state}" + (f": {record.message}" if record.message else ""))
+
+    if collect:
+        # Collected even after a failure: a run that died at stress period 40
+        # of 100 still wrote 40 periods, and seeing where it went wrong is the
+        # reason anyone looks.
+        try:
+            summary = collect_run(run_id)
+            say(f"collected {summary['times']} times of {len(summary['components'])} components")
+            for warning in summary.get("warnings", []):
+                typer.echo(f"warning: {warning}", err=True)
+        except Exception as error:
+            typer.echo(f"could not collect results: {_reason(error)}", err=True)
+            if not failed:
+                raise typer.Exit(code=1) from error
+
+    if failed:
+        typer.echo("see the log with: mupstudio runs", err=True)
+        raise typer.Exit(code=1)
+
+
+def _reason(error: Exception) -> str:
+    """The message a person needs, not the exception's repr."""
+    return str(getattr(error, "detail", None) or error)
+
+
 @app.command("import-run")
 def import_run(
     workdir: Annotated[Path, typer.Argument(help="A finished mf6rtm/MODFLOW 6 run directory")],

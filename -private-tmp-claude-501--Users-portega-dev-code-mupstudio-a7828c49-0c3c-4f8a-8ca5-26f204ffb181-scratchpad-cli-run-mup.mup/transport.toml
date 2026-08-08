@@ -1,0 +1,10 @@
+[transport]
+advection_scheme = "tvd"
+
+[transport.dispersion.longitudinal]
+kind = "constant"
+value = 0.0065
+
+[transport.dispersion.diffusion]
+kind = "constant"
+value = 0.0
